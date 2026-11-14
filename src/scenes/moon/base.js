@@ -2,31 +2,31 @@ import * as THREE from 'three';
 import { MODULES, SOLAR_ARRAY, FORK, bearingToDir } from './layout.js';
 import { makeSignTexture, createReadout, makeTagTexture, makeSolarCellTexture, makeStatusTexture } from './textures.js';
 
-const M = (color, opts = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.75, metalness: 0.05, ...opts });
+export const M = (color, opts = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.75, metalness: 0.05, ...opts });
 
-function shadowed(mesh) {
+export function shadowed(mesh) {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
 }
 
-function tagPickable(obj, key) {
+export function tagPickable(obj, key) {
   obj.traverse((o) => { if (o.isMesh) o.userData.moduleKey = key; });
   return obj;
 }
 
-function signPlane(tex, w, h) {
+export function signPlane(tex, w, h) {
   const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.6, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.35 });
   return new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
 }
 
-function tube(points, radius, material, segments = 64) {
+export function tube(points, radius, material, segments = 64) {
   const curve = new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(...p)));
   return new THREE.Mesh(new THREE.TubeGeometry(curve, segments, radius, 6, false), material);
 }
 
 // ---------- Life Support (key: crew) ----------
-function buildLifeSupport(mats, signTex) {
+export function buildLifeSupport(mats, signTex) {
   const g = new THREE.Group();
   const { radius: R } = MODULES.crew;
   g.add(shadowed(new THREE.Mesh(new THREE.CylinderGeometry(R + 0.08, R + 0.15, 0.3, 40), mats.darkMetal))).position.y = 0.15;
@@ -126,7 +126,7 @@ function buildLifeSupport(mats, signTex) {
 }
 
 // ---------- Science Lab (key: lab) ----------
-function buildLab(mats, signTex) {
+export function buildLab(mats, signTex) {
   const g = new THREE.Group();
   const { width: W, depth: D, height: H, legHeight: L } = MODULES.lab;
   const body = shadowed(new THREE.Mesh(new THREE.BoxGeometry(W, H, D), mats.labHull));
@@ -226,12 +226,12 @@ function buildLab(mats, signTex) {
 }
 
 // ---------- Solar array ----------
-function buildSolarArray(mats, heightAt) {
+export function buildSolarArray(mats, heightAt, layout = SOLAR_ARRAY) {
   const g = new THREE.Group();
   const cellTex = makeSolarCellTexture();
   const cellMat = new THREE.MeshStandardMaterial({ map: cellTex, roughness: 0.35, metalness: 0.3, emissive: 0x23417a, emissiveIntensity: 0.4 });
   const panels = [];
-  const { x: cx, z: cz, rows, perRow, rowSpacing, panelSpacing, panelW, panelH, mastH } = SOLAR_ARRAY;
+  const { x: cx, z: cz, rows, perRow, rowSpacing, panelSpacing, panelW, panelH, mastH } = layout;
   for (let r = 0; r < rows; r++) {
     for (let p = 0; p < perRow; p++) {
       const x = cx + (p - (perRow - 1) / 2) * panelSpacing;
@@ -283,7 +283,7 @@ function buildSolarArray(mats, heightAt) {
 }
 
 // Ground ring + floating tag for selection (shape + word, not just colour).
-function selectionMarker(radius, labelY, tagTex) {
+export function selectionMarker(radius, labelY, tagTex) {
   const g = new THREE.Group();
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(radius - 0.18, radius, 64),
@@ -312,7 +312,7 @@ function selectionMarker(radius, labelY, tagTex) {
 
 const textTargets = []; // { tex, key } — redrawn on language change (setTexts)
 
-function signpost(mats, heightAt, x, z, boards) {
+export function signpost(mats, heightAt, x, z, boards, targets = textTargets) {
   const g = new THREE.Group();
   const y0 = heightAt(x, z);
   const top = 0.6 + boards.length * 0.42;
@@ -321,7 +321,7 @@ function signpost(mats, heightAt, x, z, boards) {
   g.add(post);
   boards.forEach((b, i) => {
     const tex = makeSignTexture({ text: b.text, icon: b.icon, w: 768, h: 160 });
-    if (b.key) textTargets.push({ tex, key: b.key });
+    if (b.key) targets.push({ tex, key: b.key });
     const p = signPlane(tex, 1.5, 0.31);
     p.position.set(b.offset ?? 0, top - 0.05 - i * 0.42, 0.06);
     g.add(p);

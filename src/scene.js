@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createMoonEnvironment } from './scenes/moon/index.js';
+import { createMarsEnvironment } from './scenes/mars/index.js';
 import { createViewModel } from './fp/viewmodel.js';
 import { createJumpBody } from './fp/jump.js';
 
@@ -42,25 +43,28 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
   container.append(reticle);
 
   const scene = new THREE.Scene();
-  const moon = mission.id === 'moon' ? createMoonEnvironment() : null;
-  const camera = new THREE.PerspectiveCamera(65, 1, 0.06, moon ? 2000 : 80);
+  // Detailed first-person maps (Moon, Mars); Earth still uses the simple placeholder.
+  const env = mission.id === 'moon' ? createMoonEnvironment() : mission.id === 'mars' ? createMarsEnvironment() : null;
+  const jumpCfg = env?.jump ?? MOON_JUMP;
+  const camera = new THREE.PerspectiveCamera(65, 1, 0.06, env ? 2000 : 80);
   camera.rotation.order = 'YXZ';
   const viewmodel = createViewModel();
   let placeholder = null;
-  if (moon) {
+  if (env) {
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
-    scene.background = moon.background;
-    scene.add(moon.root, moon.sky.group);
-    if (pose.x === undefined) Object.assign(pose, moon.spawn);
+    scene.background = env.background;
+    scene.fog = env.fog ?? null;
+    scene.add(env.root, env.sky.group);
+    if (pose.x === undefined) Object.assign(pose, env.spawn);
   } else {
     placeholder = addPlaceholder();
     if (pose.x === undefined) Object.assign(pose, { x: 0, z: 4.3, yaw: 0, pitch: -0.14 });
   }
   const targets = placeholder ? placeholder.targets : [];
-  const body = moon ? createJumpBody(MOON_JUMP) : null;
-  body?.snapTo(moon.heightAt(pose.x, pose.z));
+  const body = env ? createJumpBody(jumpCfg) : null;
+  body?.snapTo(env.heightAt(pose.x, pose.z));
   const hv = { x: 0, z: 0 }; // horizontal velocity (m/s), kept through the air
   let jumpRequested = false;
   let spaceHeld = false;
@@ -68,7 +72,7 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
   let simTime = 0;
 
   function setShift(n) {
-    if (moon) moon.setShift(n, { solarOutput: mission.generation[n] });
+    if (env) env.setShift(n, { solarOutput: mission.generation[n], radiation: n === mission.shelterShift });
     else placeholder.setShift(n);
   }
   setShift(shift);
@@ -123,7 +127,7 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
   function targetAt(cursor) {
     syncCamera();
     scene.updateMatrixWorld();
-    if (moon) return moon.pick(camera, cursor.x, cursor.y);
+    if (env) return env.pick(camera, cursor.x, cursor.y);
     ray.setFromCamera(cursor, camera);
     return ray.intersectObjects(targets)[0]?.object.userData.key;
   }
@@ -229,7 +233,7 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
     Math.abs(x - position.x) < 1.15 && Math.abs(z - position.z) < 1.1);
   const pressed = (key) => Number(keys.has(key));
   function syncCamera() {
-    const height = moon ? body.feetY + moon.eyeHeight - landingDip : 1.55;
+    const height = env ? body.feetY + env.eyeHeight - landingDip : 1.55;
     camera.position.set(pose.x, height, pose.z);
     camera.rotation.set(pose.pitch, pose.yaw, 0);
     camera.updateMatrixWorld();
@@ -251,24 +255,24 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
       const speed = WALK_SPEED * dt / (Math.hypot(forward, side) || 1);
       const dx = (side * Math.cos(pose.yaw) - forward * Math.sin(pose.yaw)) * speed;
       const dz = (-side * Math.sin(pose.yaw) - forward * Math.cos(pose.yaw)) * speed;
-      if (moon) {
+      if (env) {
         // Desired ground velocity from WASD (m/s).
         const wantX = dt ? dx / dt : 0, wantZ = dt ? dz / dt : 0;
         const moving = wantX !== 0 || wantZ !== 0;
         if (jumpRequested) {
           jumpRequested = false;
           if (body.tryJump()) {
-            hv.x = wantX * MOON_JUMP.takeoffBoost;
-            hv.z = wantZ * MOON_JUMP.takeoffBoost;
+            hv.x = wantX * jumpCfg.takeoffBoost;
+            hv.z = wantZ * jumpCfg.takeoffBoost;
           }
         }
         if (body.grounded) {
           hv.x = wantX; hv.z = wantZ;
         } else {
           // In the air: keep momentum, steer gently with WASD.
-          const tx = moving ? wantX * MOON_JUMP.airSpeed : hv.x;
-          const tz = moving ? wantZ * MOON_JUMP.airSpeed : hv.z;
-          const rate = (moving ? MOON_JUMP.airControl : MOON_JUMP.airDrag) * dt;
+          const tx = moving ? wantX * jumpCfg.airSpeed : hv.x;
+          const tz = moving ? wantZ * jumpCfg.airSpeed : hv.z;
+          const rate = (moving ? jumpCfg.airControl : jumpCfg.airDrag) * dt;
           const ax = (moving ? tx : 0) - hv.x, az = (moving ? tz : 0) - hv.z;
           const len = Math.hypot(ax, az);
           if (len > 0) { const k = Math.min(1, rate / len); hv.x += ax * k; hv.z += az * k; }
@@ -278,7 +282,7 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
           const x0 = pose.x, z0 = pose.z;
           const steps = Math.ceil(Math.hypot(mx, mz) / 0.15);
           for (let step = 0; step < steps; step++) {
-            const next = moon.resolveMove(pose.x, pose.z, pose.x + mx / steps, pose.z + mz / steps);
+            const next = env.resolveMove(pose.x, pose.z, pose.x + mx / steps, pose.z + mz / steps);
             pose.x = next.x;
             pose.z = next.z;
           }
@@ -288,9 +292,9 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
             if (Math.abs(pose.z - z0) < Math.abs(mz) * 0.5) hv.z = (pose.z - z0) / dt;
           }
         }
-        body.step(dt, () => moon.heightAt(pose.x, pose.z));
+        body.step(dt, () => env.heightAt(pose.x, pose.z));
         if (body.landedThisStep) landingDip = 0.12;
-      } else if (!moon) {
+      } else if (!env) {
         const x = THREE.MathUtils.clamp(pose.x + dx, -7.6, 7.6);
         const z = THREE.MathUtils.clamp(pose.z + dz, -4.6, 4.6);
         if (!isBlocked(x, pose.z)) pose.x = x;
@@ -299,11 +303,11 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
     }
     landingDip *= Math.exp(-10 * dt);
     syncCamera();
-    if (moon) {
-      moon.update(dt, camera);
+    if (env) {
+      env.update(dt, camera);
       const selection = [...selected].join(',');
       if (selection !== previousSelection) {
-        moon.setSelected([...selected]);
+        env.setSelected([...selected]);
         previousSelection = selection;
       }
     }
@@ -330,7 +334,7 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
     const height = container.clientHeight;
     if (!width || !height) return;
     camera.aspect = width / height;
-    if (moon) camera.fov = THREE.MathUtils.clamp(THREE.MathUtils.radToDeg(2 * Math.atan(1 / camera.aspect)), 65, 80);
+    if (env) camera.fov = THREE.MathUtils.clamp(THREE.MathUtils.radToDeg(2 * Math.atan(1 / camera.aspect)), 65, 80);
     camera.updateProjectionMatrix();
     renderer.setSize(width, height);
     viewmodel.resize(width, height);
@@ -344,19 +348,23 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
     setShift,
     setInputEnabled,
     get inputEnabled() { return inputEnabled; },
-    // Mission state in the world (Moon only for now; placeholders ignore it).
-    setStatus(status) { moon?.setStatus(status); },
+    // Mission state in the world (Moon and Mars; the placeholder ignores it).
+    setStatus(status) { env?.setStatus(status); },
     // Language switch: canvas name, Moon map signs, tablet label/idle screen.
     setTexts(tr) {
       canvas.setAttribute('aria-label', tr('scene.label'));
-      moon?.setTexts(tr);
+      env?.setTexts(tr);
       viewmodel.tablet.setTexts(tr);
     },
     // Read-only state for tests.
     debug: {
       get grounded() { return body ? body.grounded : true; },
       get feetY() { return body ? body.feetY : 0; },
-      get groundY() { return moon ? moon.heightAt(pose.x, pose.z) : 0; },
+      get groundY() { return env ? env.heightAt(pose.x, pose.z) : 0; },
+      get envId() { return env?.id ?? 'placeholder'; },
+      get fogDensity() { return scene.fog?.density ?? 0; },
+      isBlocked: (x, z) => (env?.isBlocked ? env.isBlocked(x, z) : false),
+      pickAt: (x, y) => (env ? env.pick(camera, x, y) : null),
       get simTime() { return simTime; },
     },
     focus() { canvas.focus({ preventScroll: true }); },
@@ -365,7 +373,7 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
       resize.disconnect();
       renderer.setAnimationLoop(null);
       viewmodel.dispose();
-      if (moon) moon.dispose();
+      if (env) env.dispose();
       else scene.traverse((object) => {
         object.geometry?.dispose();
         object.material?.dispose();

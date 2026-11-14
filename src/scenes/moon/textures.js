@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { createSimplex2D, fbm, mulberry32 } from './noise.js';
 
-function canvasTexture(c) {
+export function canvasTexture(c) {
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 4;
@@ -9,7 +9,7 @@ function canvasTexture(c) {
 }
 
 // Simple pictograms drawn with canvas paths (no external assets).
-function drawIcon(ctx, kind, cx, cy, s, color) {
+export function drawIcon(ctx, kind, cx, cy, s, color) {
   ctx.save();
   ctx.strokeStyle = color;
   ctx.fillStyle = color;
@@ -54,6 +54,37 @@ function drawIcon(ctx, kind, cx, cy, s, color) {
       ctx.lineTo(cx + Math.cos(a) * s * 0.45, cy + Math.sin(a) * s * 0.45);
       ctx.stroke();
     }
+  } else if (kind === 'plant') {
+    // Sprout: stem + two leaves.
+    ctx.beginPath(); ctx.moveTo(cx, cy + s * 0.42); ctx.lineTo(cx, cy - s * 0.1); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(cx - s * 0.2, cy - s * 0.14, s * 0.22, s * 0.1, -0.6, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(cx + s * 0.2, cy - s * 0.26, s * 0.22, s * 0.1, 0.6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillRect(cx - s * 0.32, cy + s * 0.34, s * 0.64, s * 0.1);
+  } else if (kind === 'shield') {
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - s * 0.42);
+    ctx.lineTo(cx + s * 0.36, cy - s * 0.26);
+    ctx.quadraticCurveTo(cx + s * 0.34, cy + s * 0.24, cx, cy + s * 0.44);
+    ctx.quadraticCurveTo(cx - s * 0.34, cy + s * 0.24, cx - s * 0.36, cy - s * 0.26);
+    ctx.closePath(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx - s * 0.14, cy); ctx.lineTo(cx - s * 0.02, cy + s * 0.12); ctx.lineTo(cx + s * 0.17, cy - s * 0.12); ctx.stroke();
+  } else if (kind === 'radiation') {
+    // Trefoil: three blades + centre dot.
+    ctx.beginPath(); ctx.arc(cx, cy, s * 0.07, 0, Math.PI * 2); ctx.fill();
+    for (let i = 0; i < 3; i++) {
+      const a = -Math.PI / 2 + (i * 2 * Math.PI) / 3;
+      ctx.beginPath();
+      ctx.arc(cx, cy, s * 0.42, a - 0.5, a + 0.5);
+      ctx.arc(cx, cy, s * 0.13, a + 0.5, a - 0.5, true);
+      ctx.closePath(); ctx.fill();
+    }
+  } else if (kind === 'dust') {
+    // Sun behind wavy dust lines.
+    ctx.beginPath(); ctx.arc(cx + s * 0.12, cy - s * 0.12, s * 0.2, 0, Math.PI * 2); ctx.fill();
+    ctx.save(); ctx.strokeStyle = '#10151d'; ctx.lineWidth = s * 0.16;
+    for (let i = 0; i < 3; i++) { const y = cy - s * 0.02 + i * s * 0.2; ctx.beginPath(); ctx.moveTo(cx - s * 0.45, y); ctx.bezierCurveTo(cx - s * 0.2, y - s * 0.12, cx + s * 0.05, y + s * 0.12, cx + s * 0.45, y); ctx.stroke(); }
+    ctx.restore();
+    for (let i = 0; i < 3; i++) { const y = cy - s * 0.02 + i * s * 0.2; ctx.beginPath(); ctx.moveTo(cx - s * 0.45, y); ctx.bezierCurveTo(cx - s * 0.2, y - s * 0.12, cx + s * 0.05, y + s * 0.12, cx + s * 0.45, y); ctx.stroke(); }
   } else if (kind === 'arrowL' || kind === 'arrowR' || kind === 'arrowUR' || kind === 'arrowUp') {
     const ang = { arrowL: Math.PI, arrowR: 0, arrowUR: -Math.PI / 4, arrowUp: -Math.PI / 2 }[kind];
     ctx.translate(cx, cy);
@@ -128,7 +159,7 @@ export function createReadout() {
     ctx.strokeStyle = lit ? '#58c27d' : '#e0533d';
     ctx.lineWidth = 10;
     ctx.strokeRect(8, 8, 496, 240);
-    drawIcon(ctx, 'sun', 92, 128, 140, lit ? '#ffd166' : '#5b6170');
+    drawIcon(ctx, lit ? 'sun' : (labels.dimIcon || 'sun'), 92, 128, 140, lit ? '#ffd166' : (labels.dimIcon ? '#d09060' : '#5b6170'));
     ctx.fillStyle = '#f4f1e8';
     ctx.textBaseline = 'middle';
     fit(labels.output, 600, 50, 312);

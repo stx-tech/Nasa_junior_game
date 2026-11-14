@@ -247,9 +247,19 @@ function updateWorld() {
   const items = progress(mission(), state);
   const air = items.find((i) => i.key === 'air');
   const rocks = items.find((i) => i.key === 'rocks');
+  const harvest = items.find((i) => i.key === 'harvest');
+  const m = mission();
+  let shelter = null;
+  if (m.shelterShift !== undefined && state.shift === m.shelterShift && state.status === 'active') shelter = { text: t('world.radiation'), warn: true };
+  else if (m.shelterShift !== undefined && state.shift > m.shelterShift && !/Shelter/.test(state.failReason ?? '')) shelter = { text: t('world.radiationPassed'), done: true };
   view.setStatus({
     crew: air ? { text: t('world.air', { v: air.value, t: air.target }), warn: air.value === 0 } : null,
     lab: rocks ? { text: t('world.rocks', { v: rocks.value, t: rocks.target }), done: rocks.done } : null,
+    greenhouse: harvest ? {
+      text: harvest.done ? t('world.harvested', { v: harvest.value, t: harvest.target }) : t('world.harvest', { v: harvest.value, t: harvest.target, g: harvest.growth }),
+      done: harvest.done, stage: harvest.growth, harvested: harvest.value > 0,
+    } : null,
+    shelter,
   });
 }
 
@@ -260,7 +270,7 @@ function updateHUD() {
   hud.root.hidden = intro;
   hud.toggle.hidden = intro;
   hud.help.hidden = intro;
-  hud.help.textContent = m.id === 'moon' ? t('hud.helpMoon') : t('hud.help');
+  hud.help.textContent = m.id !== 'earth' ? t('hud.helpMoon') : t('hud.help'); // jump on the Moon and Mars
   if (stage === 'complete') {
     hud.title.textContent = t('hud.trainingComplete');
     hud.shift.textContent = '';

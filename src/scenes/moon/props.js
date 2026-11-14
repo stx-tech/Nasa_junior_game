@@ -6,7 +6,7 @@ import {
 import { ridgeHeight } from './terrain.js';
 
 // Four rock shapes from a jittered icosahedron (seeded).
-function makeRockGeometries(seed) {
+export function makeRockGeometries(seed) {
   const geos = [];
   const shapes = [
     { detail: 0, squash: 0.65, jitter: 0.22 }, // flat slab
