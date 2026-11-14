@@ -363,11 +363,12 @@ function planPage() {
   const m = mission();
   const options = choices(m, state);
   const budget = estimate(m, state, [...selected]);
-  const parts = [
+  const energy = [
     t('plan.energy', { n: available(m, state) }),
     t('plan.planned', { n: budget.cost }),
     t('plan.batteryAfter', { n: Math.max(0, budget.stored) }),
   ];
+  const parts = [];
   if (m.id !== 'earth') parts.push(t('plan.air', { n: state.air }), t('plan.water', { n: state.water }), t('plan.samples', { n: state.samples }));
   if (m.id === 'mars') parts.push(t('plan.food', { n: state.food }), t('plan.growth', { n: state.growth }), t('plan.harvests', { n: state.crops }));
 
@@ -375,9 +376,13 @@ function planPage() {
     el('p', { class: 't-objective', text: missionText(m, 'objective') }),
     el('p', { class: 't-forecast', text: missionText(m, 'forecast', state.shift) }));
   if (state.feedback.length) {
-    info.append(el('section', { class: `t-report${freshReport ? ' fresh' : ''}` },
-      el('h3', { text: t('plan.lastShift'), tabindex: '-1', 'data-autofocus': freshReport ? true : null }),
+    const outcome = state.feedback.find(message => !message.startsWith('You predicted '));
+    info.append(el('details', { class: 't-details' },
+      el('summary', { text: t('plan.lastShift') }),
       feedbackList(state.feedback)));
+    if (freshReport && outcome) info.prepend(el('p', {
+      class: 't-outcome', tabindex: '-1', 'data-autofocus': true, text: feedbackText(outcome),
+    }));
   }
   if (m.science) {
     info.append(el('details', {},
@@ -399,7 +404,7 @@ function planPage() {
     btn.disabled = !can;
     moduleButtons.append(btn);
   }
-  const warning = el('p', { role: 'status', class: 't-warning', text: t('plan.warning') });
+  const warning = el('p', { role: 'status', class: 't-warning', text: t('plan.shortBy', { n: -budget.remaining }) });
   warning.hidden = budget.remaining >= 0;
   const run = el('button', { type: 'button', class: 'tablet-run', text: t('plan.run'), onclick: () => {
     const predicted = prediction.value;
@@ -415,9 +420,15 @@ function planPage() {
   run.disabled = budget.remaining < 0;
 
   const plan = el('section', { class: 't-col t-plan' },
-    el('h3', { text: t('plan.title') }),
-    el('p', { class: 'stats', text: parts.join(' · ') }),
-    moduleButtons, warning, predictionControl());
+    el('p', { class: 'stats plan-energy', text: energy.join(' · ') }),
+    moduleButtons);
+  if (parts.length) plan.append(el('details', { class: 't-details' },
+    el('summary', { text: t('plan.supplies') }),
+    el('p', { class: 'stats', text: parts.join(' · ') })));
+  plan.append(el('details', { class: 't-details' },
+    el('summary', { text: prediction.key === predictionKey() && prediction.value !== null
+      ? t('predict.valueText', { n: prediction.value }) : t('plan.optionalPrediction') }),
+    predictionControl()));
   if (m.id === 'earth') {
     const hint = el('p', { class: 't-hint', text: t('plan.hint') });
     if (earthHintShift === state.shift) plan.append(hint);
@@ -430,8 +441,13 @@ function planPage() {
       plan.append(hintBtn);
     }
   }
-  plan.append(run);
-  return [header(missionText(m, 'title'), t('plan.shiftOf', { n: state.shift + 1, total: m.generation.length })), el('div', { class: 't-grid' }, info, plan)];
+  const guide = el('aside', { class: 't-guide' },
+    el('span', { class: 'guide-face', 'aria-hidden': 'true', text: '👩‍🚀' }),
+    el('div', {}, el('strong', { text: t('plan.guide') }),
+      el('p', { text: t(selected.size ? 'plan.guideSelected' : 'plan.guideStart') })));
+  return [header(missionText(m, 'title'), t('plan.shiftOf', { n: state.shift + 1, total: m.generation.length })),
+    el('div', { class: 't-plan-scroll' }, guide, el('div', { class: 't-grid' }, info, plan)),
+    el('footer', { class: 't-plan-footer' }, warning, run)];
 }
 
 function resultPage() {
@@ -487,14 +503,17 @@ function renderTablet({ keepFocus = false, quiet = false } = {}) {
   if (!tablet) return;
   const active = document.activeElement;
   const focusKey = keepFocus && active?.dataset?.module;
-  const scroll = tablet.content.scrollTop;
+  const previousScroll = tablet.content.querySelector('.t-plan-scroll') ?? tablet.content;
+  const scroll = previousScroll.scrollTop;
   let page;
   if (stage === 'intro') page = precheckPage();
   else if (stage === 'complete') page = completePage();
   else if (state.status === 'active') page = planPage();
   else page = resultPage();
+  tablet.content.classList.toggle('planning', stage === 'mission' && state.status === 'active');
   tablet.content.replaceChildren(...page);
-  if (quiet) { tablet.content.scrollTop = scroll; return; } // language switch: keep place and focus
+  if (quiet || focusKey) (tablet.content.querySelector('.t-plan-scroll') ?? tablet.content).scrollTop = scroll;
+  if (quiet) return;
   tablet.content.scrollTop = 0;
   if (focusKey) tablet.content.querySelector(`[data-module="${focusKey}"]`)?.focus();
   else if (tablet.isOpen && view.viewmodel.state === 'up' && !settingsOpen) {

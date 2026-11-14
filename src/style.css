@@ -118,6 +118,16 @@ kbd { font: 600 0.75rem system-ui; padding: 1px 6px; border-radius: 4px; border:
   background: linear-gradient(#ffffff06 1px, transparent 1px) 0 0 / 100% 2em, var(--screen);
 }
 .tablet-content:focus { outline: none; }
+.tablet-content.planning { display: flex; flex-direction: column; overflow: hidden; }
+.planning .t-head, .t-plan-footer { flex: none; }
+.t-plan-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 0.15em 0.15em 0.5em; }
+.t-plan-footer { padding-top: 0.35em; border-top: 1px solid var(--screen-line); }
+.t-guide { display: flex; align-items: flex-start; gap: 0.65em; margin-bottom: 0.65em; padding: 0.55em 0.65em; background: #12343e; border: 1px solid #4d7178; border-radius: 8px; }
+.guide-face { font-size: 1.5em; }
+.t-guide p { margin: 0.2em 0 0; }
+.t-guide strong, .plan-energy { color: var(--accent); font-weight: 800; }
+.t-outcome { margin: 0 0 0.4em; color: var(--accent); font-weight: 700; }
+.t-details[open] summary { margin-bottom: 0.35em; }
 .t-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.6em; padding-bottom: 0.5em; margin-bottom: 0.6em; border-bottom: 1px solid var(--screen-line); }
 .t-head h2 { margin: 0; font-size: 1.25em; }
 .t-sub { margin: 0.1em 0 0; color: var(--accent); font-size: 0.9em; }
