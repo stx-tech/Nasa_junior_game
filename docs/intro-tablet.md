@@ -81,9 +81,11 @@ view.stop();                 // звільнити все (зміна місії
 Гілка зроблена поверх його робочого дерева, тому найпростіше накласти патч:
 
 ```bash
-git apply intro-tablet.patch          # або: git fetch origin intro-tablet && git diff a68df71 origin/intro-tablet | git apply
+git apply --ignore-whitespace intro-tablet.patch   # файли в робочому дереві з CRLF, патч з LF
 npm install && npm run build
 ```
+
+Або взяти гілку: `git fetch origin intro-tablet` і `git diff a68df71 origin/intro-tablet -- src scripts docs/intro-tablet.md | git apply --ignore-whitespace`. Патч перевірено: він чисто накладається на копію робочого дерева Codex, після чого `vite build` проходить.
 
 Якщо після 13:00 Codex змінював `main.js`, `scene.js` чи `style.css`, перенесіть вручну:
 - `src/fp/*` — нові файли, конфліктів немає;
