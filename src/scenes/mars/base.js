@@ -10,7 +10,7 @@ import {
 } from './layout.js';
 
 // ---------- Greenhouse (key: greenhouse): clear arched tunnel along z, door at the south end ----------
-function buildGreenhouse(mats, signTex, seed = 1) {
+export function buildGreenhouse(mats, signTex, seed = 1) {
   const g = new THREE.Group();
   const { length: L, radius: R } = MODULES.greenhouse;
   // Foundation skirt

@@ -86,3 +86,12 @@ export function bearingToDir(bearingDeg, elevationDeg = 0) {
   const e = (elevationDeg * Math.PI) / 180;
   return [Math.sin(b) * Math.cos(e), Math.sin(e), -Math.cos(b) * Math.cos(e)];
 }
+
+// ---- World actions (shared layer, see src/world/layer.js) ----
+// Command console near spawn, two marked sample rocks on safe flat ground, lab tray by the door.
+export const CONSOLE = { x: 3.4, z: 7.6, yaw: -0.85 };
+export const SAMPLE_ROCKS = [
+  { id: 'rock1', x: -2.6, z: 7.4 }, // visible from spawn, left of the route
+  { id: 'rock2', x: -1.6, z: 0.6 }, // between the fork and Life Support
+];
+export const LAB_TRAY = { x: 3.3, z: -1.0, yaw: 0 };

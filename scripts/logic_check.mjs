@@ -1,6 +1,8 @@
 // Game-logic tests (node scripts/logic_check.mjs). Exhaustive over every reachable plan.
 import { missions } from '../src/missions.js';
-import { start, choices, runShift, estimate, preview, progress } from '../src/simulation.js';
+import { start, choices, runShift, estimate, preview, progress, pickUpRock, deliverRock, rockCounts } from '../src/simulation.js';
+// Carrying rocks to the lab is free: the plan checks start with every rock already in the tray.
+const ready = (m) => (m.rocks ?? []).reduce((s, id) => deliverRock(m, pickUpRock(m, s, id)), start(m));
 globalThis.localStorage = { getItem: () => 'uk', setItem() {} };
 const { feedbackText } = await import('../src/i18n.js');
 
@@ -34,7 +36,7 @@ for (const m of missions) {
       if (warn.some((w) => w.level === 'danger')) ok(next.status === 'failed', `${m.id}: a danger warning is real`, `${JSON.stringify(sel)} shift ${state.shift}`);
       rec(next);
     }
-  })(start(m));
+  })(ready(m));
   pass(`${m.id}: invariants over ${states} reachable states`);
 }
 
@@ -47,6 +49,24 @@ for (const m of missions) {
 }
 pass('retry resets state');
 
+// 2b) Sample rocks: collect -> tray -> studied (only after the shift)
+for (const m of missions.filter((x) => x.rocks)) {
+  let s = start(m);
+  ok(!choices(m, s).includes('lab'), `${m.id}: the lab cannot run without a rock in the tray`);
+  s = pickUpRock(m, s, 'rock1');
+  ok(pickUpRock(m, s, 'rock1') === s && pickUpRock(m, s, 'rock2') === s, `${m.id}: the same rock (or a second rock) cannot be picked up twice`);
+  ok(!choices(m, s).includes('lab'), `${m.id}: carrying is not enough, the rock must be in the tray`);
+  s = deliverRock(m, s);
+  ok(deliverRock(m, s) === s && rockCounts(s).tray === 1, `${m.id}: one rock is delivered once`);
+  ok(s.battery === start(m).battery, `${m.id}: delivering costs no energy`);
+  const skip = runShift(m, s, ['crew']);
+  ok(skip.rocks.rock1 === 'tray' && skip.samples === 0, `${m.id}: a rock waits in the tray when the lab is off`);
+  const studied = runShift(m, skip, ['lab']); // the cheapest plan that fits after the shadow
+  if (choices(m, skip).includes('lab')) ok(studied.rocks.rock1 === 'studied' && studied.samples === 1, `${m.id}: studied only after the shift with the lab`);
+  ok(JSON.stringify(start(m).rocks) === JSON.stringify({ rock1: 'ground', rock2: 'ground' }) && start(m).carrying === null, `${m.id}: retry puts the rocks back on the ground`);
+}
+pass('sample rocks: collect, tray, study, retry');
+
 // 3) Every message has a Ukrainian translation
 const untranslated = [...messages].filter((x) => feedbackText(x) === x);
 ok(untranslated.length === 0, 'all reachable messages translated', untranslated.join(' | '));
@@ -55,7 +75,7 @@ pass(`${messages.size} reachable messages translated to Ukrainian`);
 // 4) Named play-throughs
 function play(id, plan) {
   const m = missions.find((x) => x.id === id);
-  let s = start(m);
+  let s = ready(m);
   const log = [];
   for (const step of plan) {
     const sel = step ? step.split('+') : [];

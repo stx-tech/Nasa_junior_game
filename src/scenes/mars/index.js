@@ -8,7 +8,9 @@ import * as THREE from 'three';
 import {
   MARS_SEED, PLAY_AREA, SPAWN, MODULES, PLAYER_RADIUS, EYE_HEIGHT, SKY_BY_SHIFT, SOLAR_ARRAY, READOUT,
   RADIATION_BOARD, JUNCTION, ROVER, WEATHER_MAST, SIGNPOST, bearingToDir,
+  CONSOLE, SAMPLE_ROCKS, LAB_TRAY,
 } from './layout.js';
+import { createWorldLayer, firstVisibleHit } from '../../world/layer.js';
 import { createTerrainField, buildTerrainMesh } from './terrain.js';
 import { buildBase } from './base.js';
 import { buildProps } from './props.js';
@@ -36,6 +38,18 @@ export function createMarsEnvironment({ seed = MARS_SEED } = {}) {
   const sky = buildSky(seed);
   const dust = buildDust(seed);
   root.add(dust.points);
+  const { crew: C, lab: L, greenhouse: G, shelter: S } = MODULES;
+  const layer = createWorldLayer({
+    heightAt, consoleAt: CONSOLE, rocks: SAMPLE_ROCKS, tray: LAB_TRAY, rockColor: 0x8a5a44,
+    shapes: {
+      crew: [{ circle: [C.x, C.z, C.radius + 0.3] }, { circle: [C.x, C.z + C.radius + 0.7, 1.2] }],
+      lab: { box: [L.x - L.width / 2, L.x + L.width / 2, L.z - L.depth / 2, L.z + L.depth / 2 + 1.5] },
+      greenhouse: { box: [G.x - G.radius - 0.2, G.x + G.radius + 1.3, G.z - G.length / 2, G.z + G.length / 2 + 1.2] },
+      shelter: { box: [S.x - S.length / 2 - 1.3, S.x + S.length / 2 + 0.9, S.z - S.radius - 0.9, S.z + S.radius + 0.9] },
+    },
+    markerHeights: { crew: 5.2, lab: 5.4, greenhouse: 3.9, shelter: 4.4 },
+  });
+  root.add(layer.root);
   // Labels and status plates stay readable through the haze.
   root.traverse((o) => { if (o.isSprite) o.material.fog = false; });
 
@@ -70,6 +84,7 @@ export function createMarsEnvironment({ seed = MARS_SEED } = {}) {
     { x: ROVER.x, z: ROVER.z, r: ROVER.r },
     { x: WEATHER_MAST.x, z: WEATHER_MAST.z, r: 0.35 },
     ...props.colliders,
+    ...layer.colliders,
   ];
   const boxes = [
     { minX: lab.x - lab.width / 2 - 0.15, maxX: lab.x + lab.width / 2 + 0.15, minZ: lab.z - lab.depth / 2 - 0.15, maxZ: lab.z + lab.depth / 2 + 0.15 },
@@ -136,9 +151,9 @@ export function createMarsEnvironment({ seed = MARS_SEED } = {}) {
     ndc.set(ndcX, ndcY);
     raycaster.setFromCamera(ndc, camera);
     raycaster.far = 40;
-    const hits = raycaster.intersectObjects([terrain.userData.near, ...base.pickables], false);
-    const h = hits[0];
-    return h && h.object.userData.moduleKey ? h.object.userData.moduleKey : null;
+    const hits = raycaster.intersectObjects([terrain.userData.near, ...base.pickables, ...layer.pickables], false);
+    const h = firstVisibleHit(hits);
+    return h ? (h.object.userData.moduleKey ?? h.object.userData.interact ?? null) : null;
   }
 
   let time = 0;
@@ -147,6 +162,7 @@ export function createMarsEnvironment({ seed = MARS_SEED } = {}) {
     sky.follow(camera);
     dust.update(dt, camera);
     base.update(time, dt);
+    layer.update(dt);
   }
 
   function dispose() {
@@ -183,7 +199,11 @@ export function createMarsEnvironment({ seed = MARS_SEED } = {}) {
     setShift,
     setSelected: base.setSelected,
     setHovered: base.setHovered,
-    setTexts: base.setTexts,
+    setTexts: (t) => { base.setTexts(t); layer.setTexts(t); },
+    interactDistance: layer.distance,
+    setRocks: layer.setRocks,
+    setConsole: layer.setConsole,
+    setMarker: layer.setMarker,
     setStatus: base.setStatus,
     update,
     dispose,

@@ -3,7 +3,9 @@
 #   python3 scripts/check_mars.py http://localhost:4175/ shots
 # Plays the Moon on the tablet, then checks Mars: doors reachable, picking every module,
 # collisions, the Mars jump, dust per shift, the radiation shift, Ukrainian signs. Saves frames.
-import sys, math, json
+import sys, os, math, json
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from world_helpers import deliver_rocks
 from playwright.sync_api import sync_playwright
 
 URL = sys.argv[1] if len(sys.argv) > 1 else 'http://localhost:4175/'
@@ -43,12 +45,12 @@ def main():
 
         pg.click('.intro-start'); wait_vm('up')
         pg.click('label.choice:has(input[value="save"])'); pg.click('label.choice:has(input[value="later"])'); pg.click('.t-primary'); wait_vm('down')
+        deliver_rocks(pg)
         pg.click('.tablet-toggle'); wait_vm('up')
         for mods in (['crew'], ['crew'], ['crew', 'lab'], ['crew', 'lab']):
             for k in mods: pg.click(f'[data-module="{k}"]')
             pg.click('.tablet-run'); pg.wait_for_timeout(200)
-        pg.click('.t-actions .t-primary'); pg.wait_for_timeout(1500)
-        pg.click('.tablet-toggle'); wait_vm('down')
+        pg.click('.t-actions .t-primary'); pg.wait_for_timeout(1500)  # Mars starts with the tablet down
 
         check('Mars uses the detailed map (not the placeholder)', ev('window.__game.view.debug.envId') == 'mars')
         sp = ev('({...window.__game.pose})')
@@ -103,7 +105,7 @@ def main():
         t0 = ev('window.__game.view.debug.simTime'); peak = 0
         while not ev('window.__game.view.debug.grounded'):
             d = ev('({y: window.__game.view.debug.feetY, g: window.__game.view.debug.groundY})'); peak = max(peak, d['y'] - d['g']); pg.wait_for_timeout(80)
-        air = ev('window.__game.view.debug.simTime') - t0
+        air = ev('window.__game.view.debug.lastAirtime')  # exact: takeoff -> landing in game time
         check('Mars jump: 0.8–1.1 s in the air, apex below the Moon jump (≈1 m)', 0.8 <= air <= 1.1 and peak < 0.85, f'{air:.2f} s, apex ≈ {peak:.2f} m')
 
         # --- Dust per shift: clear -> storm -> storm + radiation -> clearing ---
@@ -111,6 +113,7 @@ def main():
         pose(0, 11, 8); shot('mars_03_shift1_clear')
         pose(-1.5, 11.5, 300); shot('mars_04_rover')
         pose(6, 4, 30, -0.02); shot('mars_05_lab_array')
+        deliver_rocks(pg)
         run(['crew', 'greenhouse', 'lab']); fog.append(ev('window.__game.view.debug.fogDensity'))
         pose(0, 11, 8); shot('mars_06_shift2_storm')
         run(['crew', 'greenhouse']); fog.append(ev('window.__game.view.debug.fogDensity'))

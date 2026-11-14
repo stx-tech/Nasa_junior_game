@@ -8,6 +8,11 @@ import { modules } from './missions.js';
 //   preview(mission, state, selected)    -> warnings BEFORE Run Shift (critical risks first)
 //   runShift(mission, state, selected)   -> next state with lastPlan, cause, feedback, failReason
 //   progress(mission, state)             -> goal progress for the tablet ("Rocks: 1 of 2")
+//   pickUpRock / deliverRock / rockCounts -> sample rocks in the world (missions with `rocks`)
+//
+// A sample rock has one of four states: 'ground' -> 'carried' -> 'tray' (waiting
+// in the lab, free) -> 'studied' (only after a shift with the lab turned on).
+// Walking and picking up cost no time and no energy; only Run Shift moves time.
 //
 // Supplies never go below 0: when something runs out, the mission stops with a
 // specific reason instead.
@@ -21,7 +26,33 @@ export function start(mission) {
     shift: 0, battery: mission.battery, air: airMax, airMax, water: mission.water ?? 3, food: mission.food ?? 3,
     crops: 0, growth: 0, samples: 0, radiation: 0, watered: false,
     status: 'active', feedback: [], lastPlan: [], cause: null, failReason: null,
+    rocks: Object.fromEntries((mission.rocks ?? []).map((id) => [id, 'ground'])),
+    carrying: null,
   };
+}
+
+export function rockCounts(state) {
+  const c = { ground: 0, carried: 0, tray: 0, studied: 0 };
+  for (const s of Object.values(state.rocks ?? {})) c[s] += 1;
+  return c;
+}
+
+// Pick up one rock (only one at a time). Returns the same state if nothing changes,
+// so a double click / E cannot collect the same rock twice.
+export function pickUpRock(mission, state, id) {
+  if (state.status !== 'active' || state.carrying || state.rocks?.[id] !== 'ground') return state;
+  return { ...state, rocks: { ...state.rocks, [id]: 'carried' }, carrying: id };
+}
+
+// Put the carried rock in the lab tray. Free: no energy, no time.
+export function deliverRock(mission, state) {
+  if (state.status !== 'active' || !state.carrying) return state;
+  return { ...state, rocks: { ...state.rocks, [state.carrying]: 'tray' }, carrying: null };
+}
+
+// Missions with sample rocks need a rock waiting in the tray before the lab can run.
+export function labNeedsSample(mission, state) {
+  return !!mission.rocks && rockCounts(state).tray === 0;
 }
 
 export function available(mission, state) {
@@ -39,6 +70,7 @@ export function choices(mission, state) {
   return mission.modules.filter(key => {
     if (key === 'shelter') return state.shift === mission.shelterShift;
     if (mission.id === 'earth' && key === 'lab') return state.shift === 0;
+    if (key === 'lab' && labNeedsSample(mission, state)) return false;
     if (key === 'lab' || key === 'greenhouse') return state.shift !== mission.shelterShift;
     if (key === 'pump') return state.shift === 1;
     return true;
@@ -160,6 +192,9 @@ export function runShift(mission, previous, input) {
   }
   if (selected.has('lab')) {
     state.samples += 1;
+    // The oldest rock waiting in the tray is the one that gets studied.
+    const waiting = (mission.rocks ?? []).find((id) => state.rocks[id] === 'tray');
+    if (waiting) state.rocks = { ...state.rocks, [waiting]: 'studied' };
     note(mission.id === 'earth' ? 'The lab finished its test.' : `The lab studied a rock. Rocks studied: ${state.samples} of ${mission.labTarget}.`);
   }
   if (selected.has('pump')) {
@@ -199,7 +234,8 @@ export function progress(mission, state) {
     items.push({ key: 'watered', value: state.watered ? 1 : 0, target: 1, done: state.watered });
     return items;
   }
-  items.push({ key: 'rocks', value: state.samples, target: mission.labTarget, done: state.samples >= mission.labTarget });
+  const rc = rockCounts(state);
+  items.push({ key: 'rocks', value: state.samples, target: mission.labTarget, done: state.samples >= mission.labTarget, tray: rc.tray, carried: rc.carried, ground: rc.ground });
   if (mission.cropTarget) items.push({ key: 'harvest', value: state.crops, target: mission.cropTarget, growth: state.growth, done: state.crops >= mission.cropTarget });
   // Shown as backup tanks: air 2 of max 2 = 1 of 1 backup left.
   items.push({ key: 'air', value: Math.max(0, state.air - 1), target: state.airMax - 1, done: false });

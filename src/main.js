@@ -1,5 +1,6 @@
 import { missions, modules } from './missions.js';
-import { available, choices, estimate, runShift, start, preview, progress } from './simulation.js';
+import { available, choices, estimate, runShift, start, preview, progress, pickUpRock, deliverRock, rockCounts, labNeedsSample } from './simulation.js';
+import { nextStep } from './guide.js';
 import { mountScene } from './scene.js';
 import { createTabletUI } from './fp/tablet-ui.js';
 import {
@@ -29,6 +30,8 @@ let freshReport = false; // the tablet shows "What changed" right after Run Shif
 // Battery prediction for the current shift: null = not set (optional), 0..10.
 // Lives in game state so it survives closing the tablet, settings and language changes.
 const prediction = { key: '', value: null };
+// World-only facts the simulation does not need (reset on every mission start).
+const world = { readBattery: false, guideHidden: false, aim: { id: null, near: false, dist: Infinity }, lastGuideKey: '', lastRun: 0, armedAt: 0, armedKey: '' };
 
 let view = null; // 3D controller from mountScene
 let tablet = null; // HTML layer on the 3D tablet screen
@@ -48,7 +51,20 @@ game.innerHTML = `
       <p class="hud-mission"><span class="hud-title"></span><span class="hud-shift"></span></p>
       <p class="hud-alert"></p>
       <p class="hud-selection" hidden></p>
+      <p class="hud-goals"></p>
+      <p class="hud-budget"></p>
+      <p class="hud-carry" hidden></p>
     </header>
+    <div class="aim-prompt" role="status" aria-live="polite" hidden></div>
+    <p class="hud-toast" role="status" hidden></p>
+    <section class="guide-bar" aria-live="polite" hidden>
+      <span class="guide-face" aria-hidden="true">👩‍🚀</span>
+      <p class="guide-text"></p>
+      <button type="button" class="guide-hint" hidden></button>
+      <button type="button" class="guide-repeat"></button>
+      <button type="button" class="guide-skip"></button>
+    </section>
+    <button type="button" class="guide-show" hidden></button>
     <div class="hud-actions">
       <button class="settings-toggle" type="button" aria-haspopup="dialog" aria-controls="settings-menu" aria-expanded="false">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-1.7-1L15 3.5h-4l-.4 2.5a7.4 7.4 0 0 0-1.7 1l-2.4-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7.4 7.4 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7.4 7.4 0 0 0 1.7-1l2.4 1 2-3.4zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
@@ -85,6 +101,17 @@ const hud = {
   introTitle: viewEl.querySelector('#intro-title'),
   introTagline: viewEl.querySelector('.intro-tagline'),
   start: viewEl.querySelector('.intro-start'),
+  goals: viewEl.querySelector('.hud-goals'),
+  budget: viewEl.querySelector('.hud-budget'),
+  carry: viewEl.querySelector('.hud-carry'),
+  prompt: viewEl.querySelector('.aim-prompt'),
+  toast: viewEl.querySelector('.hud-toast'),
+  guide: viewEl.querySelector('.guide-bar'),
+  guideText: viewEl.querySelector('.guide-text'),
+  guideHint: viewEl.querySelector('.guide-hint'),
+  guideRepeat: viewEl.querySelector('.guide-repeat'),
+  guideSkip: viewEl.querySelector('.guide-skip'),
+  guideShow: viewEl.querySelector('.guide-show'),
 };
 
 function el(tag, props = {}, ...children) {
@@ -109,9 +136,11 @@ function mountMission() {
   view = mountScene(viewEl, mission(), shownShift(), selected, toggleModule, pose, {
     onFrame: () => tablet?.sync(),
     t,
+    onAim: (aim) => { world.aim = aim; renderPrompt(); updateGuide(); },
+    onAct: act,
   });
   // HUD must stay above the canvas: move overlays after it in DOM order.
-  viewEl.append(hud.root, hud.actions, hud.help, hud.intro, hud.settings);
+  viewEl.append(hud.root, hud.prompt, hud.toast, hud.guide, hud.guideShow, hud.actions, hud.help, hud.intro, hud.settings);
   view.setTexts(t);
   if (!view.viewmodel) { tablet = null; return; }
   tablet = createTabletUI(viewEl, view.viewmodel, { onClosed: afterClose, label: t('tablet.label') });
@@ -228,10 +257,205 @@ function hudNotice(text) {
   hudNoticeTimer = setTimeout(updateHUD, 3000);
 }
 
+// ---------------------------------------------------------------------------
+// Actions in the world: same rules as the tablet (one state, two interfaces)
+// ---------------------------------------------------------------------------
+const isModule = (id) => mission().modules.includes(id);
+function unavailableReason(key) {
+  const m = mission();
+  if (key === 'lab' && labNeedsSample(m, state)) return t('why.labNoRock');
+  if (key === 'shelter') return t('why.shelterNotNow');
+  if (key === 'pump') return t('why.pumpLater');
+  if (key === 'lab' && m.id === 'earth') return t('why.benchClosed');
+  if ((key === 'lab' || key === 'greenhouse') && state.shift === m.shelterShift) return t('why.radiationStayIn');
+  return t('why.notNow');
+}
+
+// Name, state, cost + benefit, and the action (or "Walk closer") for one object.
+function describe(id, near) {
+  const m = mission();
+  const closer = t('prompt.closer');
+  if (!id || stage !== 'mission') return null;
+  if (state.status !== 'active') return { name: t('prompt.missionOver'), status: '', info: t('hud.openResults'), action: null };
+  if (id.startsWith('rock:')) {
+    const rid = id.slice(5);
+    const st = state.rocks?.[rid];
+    const name = t(m.id === 'mars' ? 'prompt.rockMars' : 'prompt.rockMoon');
+    if (st !== 'ground') return null;
+    if (state.carrying) return { name, status: t('rock.ground'), info: t('prompt.handsFull'), action: null };
+    return { name, status: t('rock.ground'), info: t('prompt.rockInfo'), action: near ? t('prompt.pickUp') : closer };
+  }
+  if (id === 'console') {
+    const budget = estimate(m, state, [...selected]);
+    const planned = [...selected].map((k) => moduleText(modules, k, 'name')).join(', ') || t('console.nothing');
+    const risks = budget.remaining < 0 ? [] : preview(m, state, [...selected]).slice(0, 2);
+    const armed = runArmed();
+    return {
+      name: t('prompt.console'),
+      status: t('console.title', { n: state.shift + 1, total: m.generation.length }) + ` · ${planned}`,
+      info: budgetText(),
+      risks,
+      action: !near ? closer : (budget.remaining < 0 ? t('console.short', { n: -budget.remaining })
+        : (risks.length && !armed ? t('prompt.runCheck', { n: state.shift + 1 }) : (armed ? t('prompt.runAnyway', { n: state.shift + 1 }) : t('prompt.run', { n: state.shift + 1 })))),
+      warn: near && (budget.remaining < 0 || risks.some((r) => r.level === 'danger')),
+    };
+  }
+  if (id === 'battery') return { name: t('prompt.battery'), status: t('prompt.batteryStatus', { n: available(m, state) }), info: t('prompt.batteryInfo'), action: null };
+  if (id === 'plants') return { name: t('prompt.plants'), status: t(state.watered ? 'prompt.plantsWatered' : 'prompt.plantsDry'), info: t('prompt.plantsInfo'), action: null };
+  if (!isModule(id)) return null;
+  const name = moduleText(modules, id, 'name');
+  const info = t(`info.${m.id === 'earth' && id === 'lab' ? 'labEarth' : id}`);
+  if (id === 'lab' && state.carrying) {
+    return { name, status: t('rock.carried'), info: t('prompt.trayInfo'), action: near ? t('prompt.drop') : closer };
+  }
+  const rc = rockCounts(state);
+  const trayLine = m.rocks && id === 'lab' ? ` · ${t('prompt.trayCount', { n: rc.tray })}` : '';
+  if (selected.has(id)) return { name, status: `✓ ${t('prompt.on')}${trayLine}`, info, action: near ? t('prompt.turnOff') : closer };
+  if (!choices(m, state).includes(id)) return { name, status: `${t('prompt.off')}${trayLine}`, info: unavailableReason(id), action: null };
+  const verb = { lab: 'prompt.study', greenhouse: 'prompt.water', shelter: 'prompt.shelter', pump: 'prompt.pump' }[id] ?? 'prompt.turnOn';
+  return { name, status: `${t('prompt.off')}${trayLine}`, info, action: near ? t(verb, { n: modules[id].cost }) : closer };
+}
+
+function renderPrompt() {
+  const { id, near, dist } = world.aim;
+  const d = dist <= 10 ? describe(id, near) : null; // far objects: no prompt
+  hud.prompt.hidden = !d;
+  if (!d) return;
+  hud.prompt.classList.toggle('near', !!near && !!d.action && d.action !== t('prompt.closer'));
+  hud.prompt.classList.toggle('warn', !!d.warn);
+  hud.prompt.replaceChildren(...[
+    el('strong', { text: d.name }),
+    d.status ? el('span', { class: 'p-status', text: d.status }) : null,
+    el('span', { class: 'p-info', text: d.info }),
+    ...(d.risks ?? []).map((r) => el('span', { class: `p-risk ${r.level}`, text: `${r.level === 'danger' ? '⚠' : '•'} ${feedbackText(r.text)}` })),
+    d.action ? el('span', { class: 'p-action' }, near && d.action !== t('prompt.closer') ? el('kbd', { text: 'E' }) : null, d.action) : null,
+  ].filter(Boolean));
+}
+
+function act(id, near) {
+  if (stage !== 'mission' || state.status !== 'active' || !id) return;
+  const m = mission();
+  if (!near) { hudNotice(t('prompt.closer')); return; }
+  if (id.startsWith('rock:')) {
+    if (state.carrying) { hudNotice(t('prompt.handsFull')); return; }
+    const next = pickUpRock(m, state, id.slice(5));
+    if (next === state) return; // already collected: a second click or E does nothing
+    state = next;
+    toast(t('toast.picked'));
+  } else if (id === 'lab' && state.carrying) {
+    state = deliverRock(m, state);
+    toast(t('toast.delivered'));
+  } else if (id === 'console') {
+    // Risks are explained BEFORE the shift: the first press shows them, a second press runs.
+    if (performance.now() - world.lastRun < 1200) return; // no accidental double run
+    const risks = preview(m, state, [...selected]);
+    if (risks.length && !runArmed()) {
+      world.armedAt = performance.now();
+      world.armedKey = planKey();
+      hudNotice(feedbackText(risks[0].text));
+      renderPrompt();
+      return;
+    }
+    world.armedAt = 0;
+    runNow();
+    world.lastRun = performance.now();
+    return;
+  } else if (id === 'battery' || id === 'plants') {
+    if (id === 'battery') world.readBattery = true;
+    hudNotice(describe(id, true).info);
+  } else if (isModule(id)) {
+    toggleModule(id);
+    return;
+  }
+  updateHUD();
+  renderTablet({ keepFocus: tablet?.isOpen, quiet: !tablet?.isOpen });
+}
+
+const planKey = () => `${state.shift}:${[...selected].sort().join(',')}`;
+const runArmed = () => world.armedAt && performance.now() - world.armedAt < 8000 && world.armedKey === planKey();
+
+// Run Shift: the same function for the command console and the tablet button.
+function runNow() {
+  const m = mission();
+  if (state.status !== 'active') return;
+  const budget = estimate(m, state, [...selected]);
+  if (budget.remaining < 0) { hudNotice(t('console.short', { n: -budget.remaining })); return; }
+  const predicted = prediction.key === predictionKey() ? prediction.value : null;
+  const before = state;
+  state = runShift(m, state, selected);
+  if (state === before) return;
+  // English source string; feedbackText() translates it for display.
+  if (predicted !== null) state.feedback.unshift(`You predicted ${predicted} energy. Your battery now has ${state.battery}.`);
+  selected.clear();
+  freshReport = true;
+  view.setShift(shownShift());
+  const main = state.failReason ?? state.feedback.find((x) => !x.startsWith('You predicted ') && !x.startsWith('The crew ate ')) ?? state.cause ?? '';
+  toast(`${t('toast.done', { n: before.shift + 1 })} ${feedbackText(main)} ${t('toast.details')}`, 6000);
+  updateHUD();
+  renderTablet();
+  if (state.status !== 'active') { hud.toast.hidden = true; openTablet(); } // result, question and Retry/Next live on the tablet
+}
+
+let toastTimer = 0;
+function toast(text, ms = 3500) {
+  hud.toast.hidden = false;
+  hud.toast.textContent = text;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { hud.toast.hidden = true; }, ms);
+}
+
+function budgetText() {
+  const m = mission();
+  const b = estimate(m, state, [...selected]);
+  return t('hud.budget', { have: available(m, state), use: b.cost, left: Math.max(0, b.stored) });
+}
+
+// Guide: one next action; the light beam marks the same object.
+function updateGuide() {
+  if (!view) return;
+  const show = stage === 'mission';
+  const m = mission();
+  let step = { key: '', target: null };
+  if (show) {
+    step = nextStep(m, state, selected, {
+      near: (id) => view.interactDistance(id) <= 2.2,
+      rockDist: (id) => view.interactDistance(`rock:${id}`),
+      readBattery: world.readBattery,
+    });
+  }
+  hud.guide.hidden = !show || world.guideHidden;
+  hud.guideShow.hidden = !show || !world.guideHidden;
+  hud.guideHint.hidden = !(m.id === 'earth' && state.status === 'active' && earthHintShift !== state.shift);
+  if (step.key && step.key !== world.lastGuideKey) {
+    hud.guideText.textContent = t(step.key);
+    if (world.lastGuideKey) { hud.guide.classList.remove('done-flash'); void hud.guide.offsetWidth; hud.guide.classList.add('done-flash'); }
+    world.lastGuideKey = step.key;
+  }
+  view.setMarker(show && !world.guideHidden ? step.target : null);
+}
+hud.guideRepeat.addEventListener('click', () => {
+  // Say it again (screen readers re-read the live region) and flash the marker.
+  const text = hud.guideText.textContent;
+  hud.guideText.textContent = '';
+  requestAnimationFrame(() => { hud.guideText.textContent = text; });
+  hud.guide.classList.remove('done-flash'); void hud.guide.offsetWidth; hud.guide.classList.add('done-flash');
+  view?.focus();
+});
+hud.guideSkip.addEventListener('click', () => { world.guideHidden = true; updateGuide(); view?.focus(); });
+hud.guideShow.addEventListener('click', () => { world.guideHidden = false; world.lastGuideKey = ''; updateGuide(); view?.focus(); });
+hud.guideHint.addEventListener('click', () => {
+  earthHintShift = state.shift;
+  hints += 1;
+  toast(t('plan.hint'), 8000);
+  updateGuide();
+  renderTablet({ quiet: true });
+  view?.focus();
+});
+
 function toggleModule(key) {
   if (stage !== 'mission' || state.status !== 'active') return;
   if (!choices(mission(), state).includes(key)) {
-    if (mission().modules.includes(key)) hudNotice(t('hud.unavailable', { name: moduleText(modules, key, 'name') }));
+    if (mission().modules.includes(key)) hudNotice(`${t('hud.unavailable', { name: moduleText(modules, key, 'name') })} ${unavailableReason(key)}`);
     return;
   }
   if (selected.has(key)) selected.delete(key); else selected.add(key);
@@ -244,6 +468,29 @@ function toggleModule(key) {
 // ---------------------------------------------------------------------------
 function updateWorld() {
   if (!view?.setStatus) return;
+  const m0 = mission();
+  view.setRocks?.(state.rocks);
+  view.setCarrying?.(!!state.carrying);
+  const b0 = estimate(m0, state, [...selected]);
+  const over = state.status !== 'active';
+  view.setConsole?.({
+    title: t('console.title', { n: Math.min(state.shift + 1, m0.generation.length), total: m0.generation.length }),
+    planned: selected.size ? t('console.on', { list: [...selected].map((k) => moduleText(modules, k, 'name')).join(', ') }) : t('console.nothing'),
+    budget: budgetText(),
+    button: over ? t('console.over') : (b0.remaining < 0 ? t('console.short', { n: -b0.remaining }) : t('console.run', { n: state.shift + 1 })),
+    ok: !over && b0.remaining >= 0,
+    over,
+  });
+  if (m0.id === 'earth') {
+    view.setStatus({
+      batteryValue: available(m0, state),
+      battery: { text: t('world.battery', { n: available(m0, state) }), warn: available(m0, state) < modules.pump.cost },
+      greenhouse: { text: t(state.watered ? 'prompt.plantsWatered' : 'prompt.plantsDry'), done: state.watered, warn: !state.watered && state.shift === 1 },
+      pump: state.shift === 1 ? { text: selected.has('pump') ? `✓ ${t('prompt.on')}` : t('world.pumpReady'), done: state.watered } : null,
+      watered: state.watered,
+    });
+    return;
+  }
   const items = progress(mission(), state);
   const air = items.find((i) => i.key === 'air');
   const rocks = items.find((i) => i.key === 'rocks');
@@ -288,6 +535,29 @@ function updateHUD() {
   const names = [...selected].map((k) => moduleText(modules, k, 'name'));
   hud.selection.hidden = !names.length || stage !== 'mission';
   hud.selection.textContent = names.length ? t('hud.selected', { list: names.join(', ') }) : '';
+  const playing = stage === 'mission' && state.status === 'active';
+  hud.budget.hidden = !playing;
+  hud.budget.textContent = playing ? budgetText() : '';
+  hud.goals.hidden = stage !== 'mission';
+  hud.goals.textContent = stage === 'mission' ? goalsText() : '';
+  hud.carry.hidden = !state.carrying || stage !== 'mission';
+  hud.carry.textContent = state.carrying ? `🪨 ${t('rock.carried')}` : '';
+  renderPrompt();
+  updateGuide();
+}
+
+function goalsText() {
+  const m = mission();
+  const parts = [];
+  for (const it of progress(m, state)) {
+    if (it.key === 'rocks') {
+      parts.push(t('hud.rocks', { v: it.value, t: it.target }) + (it.tray ? ` (${t('hud.inTray', { n: it.tray })})` : ''));
+    } else if (it.key === 'harvest') parts.push(t('progress.harvest', { v: it.value, t: it.target }));
+    else if (it.key === 'air') parts.push(t('progress.air', { v: it.value, t: it.target }));
+    else if (it.key === 'food') parts.push(t('progress.food', { v: it.value }));
+    else if (it.key === 'watered') parts.push(t('progress.watered', { v: it.value, t: it.target }));
+  }
+  return `${t('hud.goal')}: ${parts.join(' · ')}`;
 }
 
 function renderStaticTexts() {
@@ -298,6 +568,11 @@ function renderStaticTexts() {
   hud.toggleText.textContent = t('hud.tablet');
   hud.toggle.setAttribute('aria-label', t('hud.tabletLabel'));
   hud.gear.setAttribute('aria-label', t('hud.settings'));
+  hud.guideRepeat.textContent = `↻ ${t('guide.repeat')}`;
+  hud.guideSkip.textContent = t('guide.skip');
+  hud.guideShow.textContent = `👩‍🚀 ${t('guide.show')}`;
+  hud.guideHint.textContent = t('plan.hintButton');
+  world.lastGuideKey = ''; // re-render the guide line in the new language
   hud.gear.title = t('hud.settings');
   tablet?.panel.setAttribute('aria-label', t('tablet.label'));
   view?.setTexts(t);
@@ -345,7 +620,12 @@ function goalsList(m) {
   const list = el('ul', { class: 't-goals', 'aria-label': t('progress.title') });
   for (const it of items) {
     let text;
-    if (it.key === 'rocks') text = t('progress.rocks', { v: it.value, t: it.target });
+    if (it.key === 'rocks') {
+      text = t('progress.rocks', { v: it.value, t: it.target });
+      // Collected / waiting in the lab / studied are three different states.
+      const extra = [it.carried ? t('rock.carried') : null, it.tray ? t('hud.inTray', { n: it.tray }) : null].filter(Boolean);
+      if (extra.length) text += ` (${extra.join(', ')})`;
+    }
     else if (it.key === 'harvest') text = `${t('progress.harvest', { v: it.value, t: it.target })}${it.done ? '' : ` (${t('progress.growth', { g: it.growth })})`}`;
     else if (it.key === 'air') text = t('progress.air', { v: it.value, t: it.target });
     else if (it.key === 'food') text = t('progress.food', { v: it.value });
@@ -466,7 +746,7 @@ function planPage() {
       onclick: () => toggleModule(key),
     },
     el('strong', {}, moduleText(modules, key, 'name'), on ? el('span', { class: 'mod-selected', text: ` ✓ ${t('plan.selected')}` }) : null),
-    el('span', { text: `${t('plan.cost', { n: modules[key].cost })} · ${moduleText(modules, key, 'description')}${can ? '' : ` ${t('plan.unavailable')}`}` }));
+    el('span', { text: `${t('plan.cost', { n: modules[key].cost })} · ${moduleText(modules, key, 'description')}${can ? '' : ` ${t('plan.unavailable')} ${unavailableReason(key)}`}` }));
     btn.disabled = !can;
     moduleButtons.append(btn);
   }
@@ -477,17 +757,7 @@ function planPage() {
   const riskList = el('ul', { class: 't-risks', 'aria-label': t('warn.title') });
   for (const r of risks.slice(0, 2)) riskList.append(el('li', { class: r.level }, r.level === 'danger' ? '⚠ ' : '• ', feedbackText(r.text)));
   riskList.hidden = !risks.length;
-  const run = el('button', { type: 'button', class: 'tablet-run', text: t('plan.run'), onclick: () => {
-    const predicted = prediction.value;
-    state = runShift(m, state, selected);
-    // English source string; feedbackText() translates it for display.
-    if (predicted !== null) state.feedback.unshift(`You predicted ${predicted} energy. Your battery now has ${state.battery}.`);
-    selected.clear();
-    freshReport = true;
-    view.setShift(shownShift());
-    updateHUD();
-    renderTablet();
-  } });
+  const run = el('button', { type: 'button', class: 'tablet-run', text: t('plan.run'), onclick: runNow });
   run.disabled = budget.remaining < 0;
 
   const plan = el('section', { class: 't-col t-plan' },
@@ -612,9 +882,13 @@ function startMission() {
   pose = newPose();
   selected.clear();
   freshReport = false;
+  world.readBattery = false;
+  world.lastGuideKey = '';
   mountMission();
   updateHUD();
-  openTablet(); // show the new objective right away; Back to Base starts walking
+  // The tablet stays down: the goal is in the HUD and the guide shows the first step.
+  toast(missionText(mission(), 'objective'), 7000);
+  view.focus();
 }
 
 // Language switch: everything re-renders in place (mission, shift, pose, tablet, answers kept).
@@ -647,4 +921,5 @@ window.__game = {
   get selected() { return [...selected]; },
   get prediction() { return prediction.value; },
   get settingsOpen() { return settingsOpen; },
+  get world() { return world; },
 };

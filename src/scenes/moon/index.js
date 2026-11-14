@@ -10,7 +10,9 @@
 import * as THREE from 'three';
 import {
   MOON_SEED, PLAY_AREA, SPAWN, MODULES, PLAYER_RADIUS, EYE_HEIGHT, SUN_BY_SHIFT, SOLAR_ARRAY, bearingToDir,
+  CONSOLE, SAMPLE_ROCKS, LAB_TRAY,
 } from './layout.js';
+import { createWorldLayer, firstVisibleHit } from '../../world/layer.js';
 import { createTerrainField, buildTerrainMesh, ridgeHeight } from './terrain.js';
 import { buildBase } from './base.js';
 import { buildProps } from './props.js';
@@ -36,6 +38,16 @@ export function createMoonEnvironment({ seed = MOON_SEED } = {}) {
   const props = buildProps(heightAt, seed);
   root.add(props.root);
   const sky = buildSky(seed);
+  const { crew: C, lab: L } = MODULES;
+  const layer = createWorldLayer({
+    heightAt, consoleAt: CONSOLE, rocks: SAMPLE_ROCKS, tray: LAB_TRAY, rockColor: 0xa9a6a0,
+    shapes: {
+      crew: [{ circle: [C.x, C.z, C.radius + 0.3] }, { circle: [C.x, C.z + C.radius + 0.7, 1.2] }],
+      lab: { box: [L.x - L.width / 2, L.x + L.width / 2, L.z - L.depth / 2, L.z + L.depth / 2 + 1.5] },
+    },
+    markerHeights: { crew: 5.2, lab: 5.4 },
+  });
+  root.add(layer.root);
 
   // ---- Lights ----
   const sunLight = new THREE.DirectionalLight(0xfff3dc, 3.4);
@@ -69,6 +81,7 @@ export function createMoonEnvironment({ seed = MOON_SEED } = {}) {
     { x: 0.45, z: 4.2, r: 0.25 }, // fork signpost
     { x: 10.2, z: -3.2, r: 0.4 }, // solar readout post
     ...props.colliders,
+    ...layer.colliders,
   ];
   const lab = MODULES.lab;
   const boxes = [
@@ -129,10 +142,10 @@ export function createMoonEnvironment({ seed = MOON_SEED } = {}) {
     ndc.set(ndcX, ndcY);
     raycaster.setFromCamera(ndc, camera);
     raycaster.far = 40;
-    const hits = raycaster.intersectObjects([terrain.userData.near, ...base.pickables], false);
+    const hits = raycaster.intersectObjects([terrain.userData.near, ...base.pickables, ...layer.pickables], false);
     // First hit wins: terrain/ridge in front of a module blocks the click.
-    const h = hits[0];
-    return h && h.object.userData.moduleKey ? h.object.userData.moduleKey : null;
+    const h = firstVisibleHit(hits);
+    return h ? (h.object.userData.moduleKey ?? h.object.userData.interact ?? null) : null;
   }
 
   let time = 0;
@@ -140,6 +153,7 @@ export function createMoonEnvironment({ seed = MOON_SEED } = {}) {
     time += dt;
     sky.follow(camera);
     base.update(time);
+    layer.update(dt);
   }
 
   function dispose() {
@@ -181,7 +195,12 @@ export function createMoonEnvironment({ seed = MOON_SEED } = {}) {
     setShift,
     setSelected,
     setHovered: base.setHovered,
-    setTexts: base.setTexts,
+    setTexts: (t) => { base.setTexts(t); layer.setTexts(t); },
+    // World actions (shared layer)
+    interactDistance: layer.distance,
+    setRocks: layer.setRocks,
+    setConsole: layer.setConsole,
+    setMarker: layer.setMarker,
     setStatus: base.setStatus, // ({ crew: {text, warn}, lab: {text, done} }) plates over the modules // (t) => redraw signs, readout and the Selected tag in the current language
     update,
     dispose,

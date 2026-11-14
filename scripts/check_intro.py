@@ -2,7 +2,9 @@
 #   npm run build && npx vite preview --port 4174 &
 #   python3 scripts/check_intro.py http://localhost:4174/ shots
 # Software WebGL runs at ~2-3 fps, so waits are generous; on a real GPU it is instant.
-import sys, json, math, time
+import sys, os, json, math, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from world_helpers import deliver_rocks
 from playwright.sync_api import sync_playwright
 
 URL = sys.argv[1] if len(sys.argv) > 1 else 'http://localhost:4174/'
@@ -93,7 +95,10 @@ def main():
         # restore view to spawn yaw
         pg.evaluate(f'Object.assign(window.__game.pose, {json.dumps(p0)})'); pg.wait_for_timeout(1200)
 
-        # 4. Short click selects a module; a drag that starts on it does not
+        # 4. Short click selects a module; a drag that starts on it does not.
+        # Actions need the player close to the object (same rule for click and E): stand at the airlock.
+        pg.evaluate('Object.assign(window.__game.pose, {x: -5.5, z: 3.6, yaw: 0, pitch: 0.1})'); pg.wait_for_timeout(1200)
+        p0 = pose()
         sp = screen_of(-5.5, 2.55, 1.75)  # Life Support sign
         pg.mouse.move(sp['x'], sp['y']); pg.mouse.down(); pg.mouse.move(sp['x'] + 3, sp['y'] + 2); pg.mouse.up()
         pg.wait_for_timeout(500)
@@ -105,6 +110,8 @@ def main():
         sel2 = pg.evaluate('document.querySelector(".hud-selection").textContent')
         check('dragging from a module turns the view and does not toggle it', 'Life Support' in sel2 and abs(pose()['yaw'] - p0['yaw']) > 0.05)
         pg.evaluate(f'Object.assign(window.__game.pose, {json.dumps(p0)})'); pg.wait_for_timeout(1200)
+        pg.evaluate('Object.assign(window.__game.pose, {x: 0, z: 11, yaw: -0.21, pitch: -0.06})'); pg.wait_for_timeout(800)
+        p0 = pose()
 
         # 5. WASD walks; T pauses walking; Esc closes; fast presses settle
         pg.evaluate('window.__game.view.focus()')
@@ -127,6 +134,8 @@ def main():
         check('3 more fast presses end with the tablet down', vm_state() == 'down')
 
         # 6. Run shifts on the tablet: canvas is not rebuilt, pose kept, report visible
+        # (the lab studies rocks from its tray: carry both samples there first, in the world)
+        deliver_rocks(pg)
         canvas_id = pg.evaluate('window.__canvasRef = window.__game.view.canvas, 1')
         pg.click('.tablet-toggle'); wait_vm('up')
         check('module picked in 3D shows as Selected on the tablet', pg.get_attribute('[data-module="crew"]', 'aria-pressed') == 'true')
@@ -145,8 +154,9 @@ def main():
         check('Moon mission won (LS, LS, LS+Lab, LS+Lab)', st['status'] == 'won', json.dumps({k: st[k] for k in ('status', 'battery', 'samples')}))
         shot('06_mission_complete')
         pg.click('text=Next Mission')
-        pg.wait_for_function('window.__game.view.viewmodel && window.__game.view.viewmodel.state === "up"', timeout=30000)
-        check('Next Mission mounts Mars and raises the tablet', pg.evaluate('window.__game.state.shift === 0') and pg.evaluate("document.querySelector('.hud-title').textContent.startsWith('Mars')"))
+        pg.wait_for_timeout(1500)
+        check('Next Mission mounts Mars; the tablet stays down and the guide shows the first step', pg.evaluate('window.__game.state.shift === 0') and pg.evaluate("document.querySelector('.hud-title').textContent.startsWith('Mars')") and vm_state() == 'down' and pg.is_visible('.guide-bar'))
+        pg.click('.tablet-toggle'); wait_vm('up')
         pg.click('.t-back'); wait_vm('down')
         check('Back to Base closes and returns focus', pg.evaluate('document.activeElement === window.__game.view.canvas'))
 

@@ -15,6 +15,7 @@ export const missions = [
     battery: 1,
     air: 2, // 1 backup tank: skipping Life Support once is a recoverable mistake
     labTarget: 2,
+    rocks: ['rock1', 'rock2'], // sample rocks on the map: pick up -> lab tray -> study
     modules: ['crew', 'lab'],
   },
   {
@@ -34,6 +35,7 @@ export const missions = [
       description: 'During a 2007 dust storm, NASA’s Opportunity rover went from over 700 watt-hours per Martian day to as low as 128. It later reached 243. This training mission scales those readings into game energy and keeps the low point for two shifts.',
     },
     labTarget: 2,
+    rocks: ['rock1', 'rock2'],
     cropTarget: 1,
     shelterShift: 2,
     modules: ['crew', 'greenhouse', 'lab', 'shelter'],

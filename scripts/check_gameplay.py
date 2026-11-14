@@ -2,7 +2,9 @@
 #   npm run build && npx vite preview --port 4175 &
 #   python3 scripts/check_gameplay.py http://localhost:4175/ shots
 # Plays Moon (with one recoverable mistake) -> Mars (one loss + Retry, then plan B) -> Earth (no hint), in a narrow window.
-import sys, json
+import sys, os, json
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from world_helpers import deliver_rocks
 from playwright.sync_api import sync_playwright
 
 URL = sys.argv[1] if len(sys.argv) > 1 else 'http://localhost:4175/'
@@ -53,6 +55,7 @@ def run(lang, width, height, shots_prefix):
         pg.click('.intro-start'); wait_vm('up')
         pg.click('label.choice:has(input[value="save"])'); pg.click('label.choice:has(input[value="later"])')
         pg.click('.t-primary'); wait_vm('down')
+        deliver_rocks(pg)  # samples go to the lab tray in the world (free); the lab studies them later
         pg.click('.tablet-toggle'); wait_vm('up')
 
         # ---- Moon shift 1: guide question, goals, footer risk
@@ -97,7 +100,8 @@ def run(lang, width, height, shots_prefix):
         run_shift(['crew'])
         check(f'{tag} Moon won after a recoverable mistake', ev('window.__game.state.status') == 'won', ev('window.__game.state.failReason') or '')
         pg.screenshot(path=f'{OUT}/{shots_prefix}_3_moon_won.png')
-        pg.click('.t-actions .t-primary'); pg.wait_for_timeout(300)
+        pg.click('.t-actions .t-primary'); pg.wait_for_timeout(1200)
+        deliver_rocks(pg); pg.click('.tablet-toggle'); wait_vm('up')
 
         # ---- Mars: loss (crew outside in radiation) + Retry
         check(f'{tag} Mars starts', ev('window.__game.state.shift') == 0 and 'Mars' in text('.tablet-content h2') or 'Марс' in text('.tablet-content h2'))
@@ -112,16 +116,19 @@ def run(lang, width, height, shots_prefix):
         prim = ev("[...document.querySelectorAll('.t-actions button')].map(b => [b.textContent, b.classList.contains('t-primary')])")
         check(f'{tag} one obvious Retry (single primary button)', len([x for x in prim if x[1]]) == 1 and len(prim) == 1, json.dumps(prim, ensure_ascii=False))
         pg.screenshot(path=f'{OUT}/{shots_prefix}_4_mars_fail.png')
-        pg.click('.t-actions .t-primary'); pg.wait_for_timeout(300)
+        pg.click('.t-actions .t-primary'); pg.wait_for_timeout(1200)
         s = ev('window.__game.state')
         check(f'{tag} Retry resets Mars (shift 0, 6 battery, 3 food, 0 rocks)', s['shift'] == 0 and s['battery'] == 6 and s['food'] == 3 and s['samples'] == 0 and s['status'] == 'active')
 
+        check(f'{tag} Retry puts the rocks back on the ground', s['rocks'] == {'rock1': 'ground', 'rock2': 'ground'})
+        deliver_rocks(pg); pg.click('.tablet-toggle'); wait_vm('up')
         # ---- Mars plan B
         for mods in (['crew', 'greenhouse', 'lab'], ['crew', 'greenhouse'], ['crew', 'shelter'], ['crew', 'lab']):
             run_shift(mods)
         check(f'{tag} Mars won with plan B (plants early, science later)', ev('window.__game.state.status') == 'won')
         pg.screenshot(path=f'{OUT}/{shots_prefix}_5_mars_won.png')
-        pg.click('.t-actions .t-primary'); pg.wait_for_timeout(300)
+        pg.click('.t-actions .t-primary'); pg.wait_for_timeout(1200)
+        pg.click('.tablet-toggle'); wait_vm('up')
 
         # ---- Earth without a hint
         check(f'{tag} Earth plan does not show the answer (hint is a button)', ev("!document.querySelector('.t-hint') && !!document.querySelector('.t-plan button:not([data-module])')"))

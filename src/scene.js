@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { createMoonEnvironment } from './scenes/moon/index.js';
 import { createMarsEnvironment } from './scenes/mars/index.js';
+import { createEarthEnvironment } from './scenes/earth/index.js';
 import { createViewModel } from './fp/viewmodel.js';
 import { createJumpBody } from './fp/jump.js';
+import { REACH } from './world/layer.js';
 
 const appearance = {
   mars: [0x3b2427, 0xa45a40],
@@ -24,7 +26,9 @@ const MOON_JUMP = { height: 1.05, airtime: 1.5, takeoffBoost: 1.15, airSpeed: 1.
 //   view.viewmodel            // tablet + gloves layer (see src/fp/viewmodel.js)
 //   view.focus()              // give keyboard focus back to the scene
 //   view.stop()               // dispose everything
-export function mountScene(container, mission, shift, selected, onSelect, pose, { onFrame, t } = {}) {
+//   onAim({ id, near, dist })  // what the action would hit now (prompt next to the reticle)
+//   onAct(id, near)            // short click or E on that object (same distance rule for both)
+export function mountScene(container, mission, shift, selected, onSelect, pose, { onFrame, t, onAim, onAct } = {}) {
   let renderer;
   try {
     renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -44,7 +48,8 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
 
   const scene = new THREE.Scene();
   // Detailed first-person maps (Moon, Mars); Earth still uses the simple placeholder.
-  const env = mission.id === 'moon' ? createMoonEnvironment() : mission.id === 'mars' ? createMarsEnvironment() : null;
+  const env = mission.id === 'moon' ? createMoonEnvironment() : mission.id === 'mars' ? createMarsEnvironment()
+    : mission.id === 'earth' ? createEarthEnvironment() : null;
   const jumpCfg = env?.jump ?? MOON_JUMP;
   const camera = new THREE.PerspectiveCamera(65, 1, 0.06, env ? 2000 : 80);
   camera.rotation.order = 'YXZ';
@@ -70,6 +75,8 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
   let spaceHeld = false;
   let landingDip = 0;
   let simTime = 0;
+  let takeoffAt = 0;
+  let lastAirtime = 0; // exact game-time airtime of the last jump (tests)
 
   function setShift(n) {
     if (env) env.setShift(n, { solarOutput: mission.generation[n], radiation: n === mission.shelterShift });
@@ -118,6 +125,23 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
     };
   }
 
+  // Carried sample: a rock in the glove at the bottom right (own layer, never clips walls).
+  const heldScene = new THREE.Scene();
+  const heldCamera = new THREE.PerspectiveCamera(50, 1, 0.01, 5);
+  heldScene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.6));
+  const heldKey = new THREE.DirectionalLight(0xffffff, 1.6);
+  heldKey.position.set(-1, 1, 1);
+  heldScene.add(heldKey);
+  const held = new THREE.Group();
+  const heldRock = new THREE.Mesh(new THREE.DodecahedronGeometry(0.07, 1), new THREE.MeshStandardMaterial({ color: mission.id === 'mars' ? 0x8a5a44 : 0xa9a6a0, roughness: 0.85, flatShading: true, emissive: 0xffa040, emissiveIntensity: 0.15 }));
+  heldRock.scale.y = 0.8;
+  const glove = new THREE.Mesh(new THREE.SphereGeometry(0.075, 16, 12), new THREE.MeshStandardMaterial({ color: 0xf1efe9, roughness: 0.7 }));
+  glove.scale.set(1.2, 0.6, 1.1);
+  glove.position.y = -0.055;
+  held.add(heldRock, glove);
+  held.visible = false;
+  heldScene.add(held);
+
   const ray = new THREE.Raycaster();
   const center = new THREE.Vector2();
   const canvas = renderer.domElement;
@@ -132,10 +156,37 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
     return ray.intersectObjects(targets)[0]?.object.userData.key;
   }
 
+  // ---- Aim: the last input wins. Mouse movement aims with the cursor; moving or
+  // turning with the keyboard aims with the centre reticle. The prompt, a click
+  // and E always use the same target and the same distance check.
+  let aimCursor = null; // null = centre
+  let lastAim = { id: null, near: false };
+  function nearness(id) {
+    if (!id) return { near: false, dist: Infinity };
+    const dist = env?.interactDistance ? env.interactDistance(id, pose.x, pose.z) : 0;
+    return { near: dist <= REACH, dist };
+  }
+  function aimTarget(cursor = aimCursor ?? center) {
+    const id = targetAt(cursor) ?? null;
+    return { id, ...nearness(id) };
+  }
   function selectAt(cursor) {
     if (!inputEnabled) return;
-    const key = targetAt(cursor);
-    if (key) onSelect(key);
+    const hit = aimTarget(cursor);
+    if (!hit.id) return;
+    if (onAct) onAct(hit.id, hit.near);
+    else onSelect(hit.id);
+  }
+  let aimTimer = 0;
+  function refreshAim(force = false) {
+    if (!onAim) return;
+    const hit = inputEnabled ? aimTarget() : { id: null, near: false, dist: Infinity };
+    if (force || hit.id !== lastAim.id || hit.near !== lastAim.near) {
+      lastAim = hit;
+      onAim(hit);
+    }
+    reticle.classList.toggle('on-target', !!hit.id && hit.near);
+    reticle.hidden = aimCursor !== null;
   }
 
   function cursorOf(event) {
@@ -169,7 +220,7 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
   });
   canvas.addEventListener('pointermove', (event) => {
     if (!drag || event.pointerId !== drag.id) {
-      if (inputEnabled && event.pointerType === 'mouse' && !drag) hoverCursor = cursorOf(event);
+      if (inputEnabled && event.pointerType === 'mouse' && !drag) { hoverCursor = cursorOf(event); aimCursor = hoverCursor; }
       return;
     }
     if ((event.buttons & 1) === 0) { endDrag(); return; } // button released outside the window
@@ -192,6 +243,7 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
     if (wasClick) selectAt(cursorOf(event));
   });
   canvas.addEventListener('pointercancel', endDrag);
+  canvas.addEventListener('pointerleave', () => { if (!drag) aimCursor = null; });
   canvas.addEventListener('lostpointercapture', () => { if (drag) endDrag(); });
   canvas.addEventListener('contextmenu', (event) => event.preventDefault());
 
@@ -206,12 +258,13 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
     }
     if (event.code === 'KeyE' || event.code === 'Enter') {
       event.preventDefault();
-      if (!event.repeat) selectAt(center);
+      if (!event.repeat) selectAt(aimCursor ?? center); // the object named in the prompt
       return;
     }
     if (!movementKeys.has(event.code)) return;
     event.preventDefault();
     keys.add(event.code);
+    aimCursor = null; // keyboard movement: aim with the centre reticle
   });
   canvas.addEventListener('keyup', (event) => {
     keys.delete(event.code);
@@ -262,6 +315,7 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
         if (jumpRequested) {
           jumpRequested = false;
           if (body.tryJump()) {
+            takeoffAt = simTime;
             hv.x = wantX * jumpCfg.takeoffBoost;
             hv.z = wantZ * jumpCfg.takeoffBoost;
           }
@@ -293,7 +347,7 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
           }
         }
         body.step(dt, () => env.heightAt(pose.x, pose.z));
-        if (body.landedThisStep) landingDip = 0.12;
+        if (body.landedThisStep) { landingDip = 0.12; lastAirtime = simTime - takeoffAt; }
       } else if (!env) {
         const x = THREE.MathUtils.clamp(pose.x + dx, -7.6, 7.6);
         const z = THREE.MathUtils.clamp(pose.z + dz, -4.6, 4.6);
@@ -317,8 +371,15 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
       }
     }
     if (hoverCursor && inputEnabled && !drag) {
-      canvas.style.cursor = targetAt(hoverCursor) ? 'pointer' : '';
+      const hit = aimTarget(hoverCursor);
+      canvas.style.cursor = hit.id ? (hit.near ? 'pointer' : 'help') : '';
       hoverCursor = null;
+    }
+    aimTimer -= dt;
+    if (aimTimer <= 0) { aimTimer = 0.1; refreshAim(); }
+    if (held.visible) {
+      held.position.set(0.24, -0.2 + 0.01 * Math.sin(simTime * 6), -0.45);
+      held.rotation.y += dt * 0.6;
     }
     viewmodel.update(dt);
     renderer.clear();
@@ -326,6 +387,9 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
     if (viewmodel.progress > 0) {
       renderer.clearDepth();
       renderer.render(viewmodel.scene, viewmodel.camera);
+    } else if (held.visible) {
+      renderer.clearDepth();
+      renderer.render(heldScene, heldCamera);
     }
     onFrame?.(dt);
   });
@@ -338,6 +402,8 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
     camera.updateProjectionMatrix();
     renderer.setSize(width, height);
     viewmodel.resize(width, height);
+    heldCamera.aspect = width / height;
+    heldCamera.updateProjectionMatrix();
   });
   resize.observe(container);
 
@@ -348,6 +414,14 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
     setShift,
     setInputEnabled,
     get inputEnabled() { return inputEnabled; },
+    // World actions
+    setCarrying(on) { held.visible = !!on; },
+    setRocks(states) { env?.setRocks?.(states); },
+    setConsole(screen) { env?.setConsole?.(screen); },
+    setMarker(id) { env?.setMarker?.(id); },
+    interactDistance: (id) => nearness(id).dist,
+    refreshAim: () => refreshAim(true),
+    get aim() { return lastAim; },
     // Mission state in the world (Moon and Mars; the placeholder ignores it).
     setStatus(status) { env?.setStatus(status); },
     // Language switch: canvas name, Moon map signs, tablet label/idle screen.
@@ -365,7 +439,9 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
       get fogDensity() { return scene.fog?.density ?? 0; },
       isBlocked: (x, z) => (env?.isBlocked ? env.isBlocked(x, z) : false),
       pickAt: (x, y) => (env ? env.pick(camera, x, y) : null),
+      get carrying() { return held.visible; },
       get simTime() { return simTime; },
+      get lastAirtime() { return lastAirtime; },
     },
     focus() { canvas.focus({ preventScroll: true }); },
     stop() {

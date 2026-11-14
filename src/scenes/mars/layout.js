@@ -104,3 +104,11 @@ export const MOONS = [
   { name: 'phobos', bearing: 300, elevation: 24, size: 5.5 },
   { name: 'deimos', bearing: 40, elevation: 52, size: 3.2 },
 ];
+
+// ---- World actions (shared layer, see src/world/layer.js) ----
+export const CONSOLE = { x: -2.8, z: 9.4, yaw: 0.85 };
+export const SAMPLE_ROCKS = [
+  { id: 'rock1', x: -2.6, z: 1.4 }, // between the greenhouse and Life Support routes
+  { id: 'rock2', x: 2.4, z: 0.4 }, // beside the lab route
+];
+export const LAB_TRAY = { x: 3.9, z: -2.2, yaw: 0 };

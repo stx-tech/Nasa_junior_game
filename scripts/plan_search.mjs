@@ -1,6 +1,8 @@
 // Enumerate every plan of every mission with the real rules (node scripts/plan_search.mjs [overrides.json]).
 import { missions } from '../src/missions.js';
-import { start, choices, runShift, estimate } from '../src/simulation.js';
+import { start, choices, runShift, estimate, pickUpRock, deliverRock } from '../src/simulation.js';
+// Carrying rocks to the lab is free (no energy, no time): plans start with every rock in the tray.
+const ready = (m) => (m.rocks ?? []).reduce((s, id) => deliverRock(m, pickUpRock(m, s, id)), start(m));
 const overrides = process.argv[2] ? JSON.parse(process.argv[2]) : {};
 function subsets(arr) { const out = [[]]; for (const a of arr) { const n = out.length; for (let i = 0; i < n; i++) out.push([...out[i], a]); } return out; }
 export function explore(m) {
@@ -15,7 +17,7 @@ export function explore(m) {
       if (estimate(m, state, s).remaining < 0) continue;
       rec(runShift(m, state, s), [...path, s.join('+') || '-']);
     }
-  })(start(m), []);
+  })(ready(m), []);
   return { wins, fails };
 }
 for (const base of missions) {
