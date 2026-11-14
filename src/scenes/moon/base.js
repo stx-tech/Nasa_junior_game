@@ -310,6 +310,8 @@ function selectionMarker(radius, labelY, tagTex) {
   return { group: g, tag, ring };
 }
 
+const textTargets = []; // { tex, key } — redrawn on language change (setTexts)
+
 function signpost(mats, heightAt, x, z, boards) {
   const g = new THREE.Group();
   const y0 = heightAt(x, z);
@@ -319,6 +321,7 @@ function signpost(mats, heightAt, x, z, boards) {
   g.add(post);
   boards.forEach((b, i) => {
     const tex = makeSignTexture({ text: b.text, icon: b.icon, w: 768, h: 160 });
+    if (b.key) textTargets.push({ tex, key: b.key });
     const p = signPlane(tex, 1.5, 0.31);
     p.position.set(b.offset ?? 0, top - 0.05 - i * 0.42, 0.06);
     g.add(p);
@@ -349,9 +352,12 @@ export function buildBase(heightAt) {
   const root = new THREE.Group();
   root.name = 'moon-base';
   const tagTex = makeTagTexture('Selected');
+  textTargets.length = 0;
+  textTargets.push({ tex: tagTex, key: 'map.selected' });
+  const sign = (key, opts) => { const tex = makeSignTexture(opts); textTargets.push({ tex, key }); return tex; };
 
   // Life Support
-  const ls = buildLifeSupport(mats, makeSignTexture({ text: 'LIFE SUPPORT', icon: 'air', accent: '#7cc8ff' }));
+  const ls = buildLifeSupport(mats, sign('map.lifeSupport', { text: 'LIFE SUPPORT', icon: 'air', accent: '#7cc8ff' }));
   ls.group.position.set(MODULES.crew.x, heightAt(MODULES.crew.x, MODULES.crew.z), MODULES.crew.z);
   tagPickable(ls.group, 'crew');
   root.add(ls.group);
@@ -360,7 +366,7 @@ export function buildBase(heightAt) {
   root.add(lsSel.group);
 
   // Science Lab
-  const lab = buildLab(mats, makeSignTexture({ text: 'SCIENCE LAB', icon: 'sample', accent: '#f2c230' }));
+  const lab = buildLab(mats, sign('map.scienceLab', { text: 'SCIENCE LAB', icon: 'sample', accent: '#f2c230' }));
   lab.group.position.set(MODULES.lab.x, heightAt(MODULES.lab.x, MODULES.lab.z), MODULES.lab.z);
   tagPickable(lab.group, 'lab');
   root.add(lab.group);
@@ -383,7 +389,7 @@ export function buildBase(heightAt) {
   const roBack = new THREE.Mesh(new THREE.BoxGeometry(1.28, 0.68, 0.06), mats.darkMetal);
   roBack.position.set(0, 1.55, 0.01);
   ro.add(roBack);
-  const roSign = signPlane(makeSignTexture({ text: 'SOLAR ARRAY', icon: 'sun', accent: '#ffd166', w: 768, h: 160 }), 1.4, 0.29);
+  const roSign = signPlane(sign('map.solarArray', { text: 'SOLAR ARRAY', icon: 'sun', accent: '#ffd166', w: 768, h: 160 }), 1.4, 0.29);
   roSign.position.set(0, 2.1, 0.06);
   ro.add(roSign);
   ro.position.set(roX, heightAt(roX, roZ), roZ);
@@ -418,9 +424,9 @@ export function buildBase(heightAt) {
 
   // Signpost at the fork
   root.add(signpost(mats, heightAt, 0.45, 4.2, [
-    { text: 'LIFE SUPPORT', icon: 'arrowL' },
-    { text: 'SCIENCE LAB', icon: 'arrowR' },
-    { text: 'SOLAR ARRAY', icon: 'arrowUR' },
+    { text: 'LIFE SUPPORT', icon: 'arrowL', key: 'map.lifeSupport' },
+    { text: 'SCIENCE LAB', icon: 'arrowR', key: 'map.scienceLab' },
+    { text: 'SOLAR ARRAY', icon: 'arrowUR', key: 'map.solarArray' },
   ]));
 
   // Small lander behind spawn (context: "you arrived here"), outside the walk box.
@@ -477,7 +483,13 @@ export function buildBase(heightAt) {
     labSel.tag.position.y = lab.labelY + 0.08 * Math.sin(t * 2 + 1);
   }
 
-  return { root, pickables, setSelected, setSolar, setHovered, update, mats };
+  // Language switch: redraw every sign/readout/tag texture with t(key).
+  function setTexts(t) {
+    for (const { tex, key } of textTargets) tex.userData.setText(t(key));
+    readout.setLabels({ output: t('map.solarOutput'), sunlight: t('map.inSunlight'), shadow: t('map.inShadow') });
+  }
+
+  return { root, pickables, setSelected, setSolar, setHovered, setTexts, update, mats };
 }
 
 export { bearingToDir };

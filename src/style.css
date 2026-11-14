@@ -61,11 +61,32 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 }
 kbd { font: 600 0.75rem system-ui; padding: 1px 6px; border-radius: 4px; border: 1px solid #ffffff55; background: #ffffff14; }
 
+/* Top-right actions: Settings (gear) sits immediately left of the Tablet button. */
+.hud-actions { position: absolute; right: 12px; top: 12px; z-index: 4; display: flex; gap: 8px; align-items: center; }
 .tablet-toggle {
-  position: absolute; right: 12px; top: 12px; z-index: 3;
   display: flex; align-items: center; gap: 8px;
   background: #102331e6; border-color: #81c6c3; box-shadow: 0 2px 12px #061019a6;
 }
+.settings-toggle {
+  width: 44px; height: 44px; padding: 0; display: grid; place-items: center;
+  background: #102331e6; border-color: #81c6c3; box-shadow: 0 2px 12px #061019a6;
+}
+.settings-toggle svg { width: 22px; height: 22px; fill: var(--accent); }
+.settings-toggle[aria-expanded="true"] { background: #1f4a4f; }
+
+/* Settings menu (game style, compact) */
+.settings-menu {
+  position: absolute; right: 12px; top: 64px; z-index: 6; box-sizing: border-box;
+  width: min(20rem, calc(100% - 24px)); padding: 12px 14px 14px;
+  border-radius: 14px; background: #0d202af2; border: 2px solid #4d7178;
+  box-shadow: 0 12px 40px #000a; color: #effbfa;
+}
+.settings-menu[hidden] { display: none; }
+.settings-menu header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.settings-menu h2 { margin: 0; font-size: 1.1rem; }
+.settings-close { background: #173039; border-color: #4d7178; }
+.lang-choices { margin: 0; padding: 0; border: 0; display: grid; gap: 6px; }
+.lang-choices legend { font-weight: 700; margin-bottom: 6px; padding: 0; }
 .tablet-toggle[hidden] { display: none; }
 .tablet-icon { width: 18px; height: 13px; border: 2px solid var(--accent); border-radius: 3px; box-shadow: inset 0 0 0 2px #102331, inset 0 0 0 6px #2c6b6b; }
 
@@ -116,12 +137,53 @@ kbd { font: 600 0.75rem system-ui; padding: 1px 6px; border-radius: 4px; border:
 .modules { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11em), 1fr)); gap: 0.45em; }
 .modules button { display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 0.1em; background: #16303a; border-color: #4d7178; }
 .modules button span { font-size: 0.82em; color: #c7d5dc; }
+.modules button strong { overflow-wrap: anywhere; hyphens: auto; }
+.modules button strong .mod-selected { display: block; }
 .modules button[aria-pressed="true"] { background: #075e51; border-color: #75e6c6; }
-.modules button[aria-pressed="true"] strong::after { content: ' ✓ Selected'; color: #9ff0d8; font-size: 0.85em; }
+.modules button strong .mod-selected { color: #9ff0d8; font-size: 0.85em; }
 .t-warning { color: var(--warn); margin: 0.4em 0 0; }
 .t-warning[hidden] { display: none; }
-.t-predict { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4em; margin: 0.6em 0; }
-.t-predict input { width: 6em; min-height: 40px; }
+/* Battery prediction: full-width slider 1–10 + separate 0 option */
+.predict { margin: 0.7em 0 0.5em; padding: 0.55em 0.7em 0.6em; border-radius: 10px; background: #11262f; border: 1px solid #2f5560; }
+.predict-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6em; flex-wrap: wrap; }
+.predict-head label { font-weight: 700; }
+.predict-readout { display: inline-flex; align-items: baseline; gap: 0.4em; }
+.predict-value { font-size: 1.7em; font-weight: 800; color: var(--accent); min-width: 1.4em; text-align: right; line-height: 1; }
+.predict-status { font-size: 0.82em; color: #c7d5dc; }
+.predict-track { display: flex; align-items: center; gap: 0.6em; margin-top: 0.25em; }
+.predict-end { font-weight: 700; color: #c7d5dc; min-width: 1.4em; text-align: center; }
+.predict input[type="range"] {
+  --fill: 44%;
+  flex: 1; min-width: 0; height: 44px; margin: 0; padding: 0; border: 0; background: transparent;
+  -webkit-appearance: none; appearance: none; cursor: pointer; touch-action: none;
+}
+.predict input[type="range"]::-webkit-slider-runnable-track {
+  height: 12px; border-radius: 6px; border: 1px solid #4d7178;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 calc(100% / 9 - 2px), #ffffff22 calc(100% / 9 - 2px) calc(100% / 9)),
+    linear-gradient(90deg, #4fc8b3 0 var(--fill), #1b3640 var(--fill) 100%);
+}
+.predict input[type="range"]::-moz-range-track { height: 12px; border-radius: 6px; border: 1px solid #4d7178; background: #1b3640; }
+.predict input[type="range"]::-moz-range-progress { height: 12px; border-radius: 6px; background: #4fc8b3; }
+.predict input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 30px; height: 30px; margin-top: -10px;
+  border-radius: 50%; background: #a1e7d7; border: 3px solid #0d202a; box-shadow: 0 0 0 2px #a1e7d7, 0 2px 6px #000a;
+}
+.predict input[type="range"]::-moz-range-thumb {
+  width: 26px; height: 26px; border-radius: 50%; background: #a1e7d7; border: 3px solid #0d202a; box-shadow: 0 0 0 2px #a1e7d7;
+}
+.predict input[type="range"]:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 8px; }
+/* Not set yet (or 0 chosen): hollow thumb, no fill — the slider is not the answer. */
+.predict.unset input[type="range"]::-webkit-slider-runnable-track { background: repeating-linear-gradient(90deg, transparent 0 calc(100% / 9 - 2px), #ffffff22 calc(100% / 9 - 2px) calc(100% / 9)), #1b3640; }
+.predict.unset input[type="range"]::-webkit-slider-thumb { background: #0d202a; box-shadow: 0 0 0 2px #7fb9b2; }
+.predict.unset input[type="range"]::-moz-range-progress { background: transparent; }
+.predict.unset input[type="range"]::-moz-range-thumb { background: #0d202a; }
+.predict.unset .predict-value { color: #7fb9b2; }
+.predict-extra { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45em; margin-top: 0.3em; }
+.predict-zero, .predict-choose { min-height: 40px; padding: 0.4em 0.75em; font-size: 0.9em; background: #16303a; border-color: #4d7178; }
+.predict-zero[aria-pressed="true"] { background: #5a3b1a; border-color: var(--warn); color: #ffe2b8; font-weight: 700; }
+.predict-choose[hidden] { display: none; }
+.predict-help { font-size: 0.8em; color: #9fb3bb; }
 .t-hint { color: var(--warn); }
 .tablet-run, .t-primary { background: #a1e7d7; color: #102c30; font-weight: 800; border: 0; }
 .tablet-run { width: 100%; margin-top: 0.4em; font-size: 1.1em; }
@@ -143,5 +205,6 @@ label.choice:has(input:checked) { background: #075e51; border-color: #75e6c6; }
 
 @media (max-width: 640px) {
   .hud { max-width: calc(100% - 24px); top: 64px; }
+  .predict input[type="range"] { height: 48px; } /* bigger touch target */
   .hud-help { font-size: 0.72rem; right: 12px; }
 }

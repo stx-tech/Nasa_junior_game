@@ -58,6 +58,13 @@ function screenIdleTexture() {
   const c = document.createElement('canvas');
   c.width = 640; c.height = 400;
   const ctx = c.getContext('2d');
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.userData.setText = (title, status) => { draw(title, status); t.needsUpdate = true; };
+  draw('MISSION TABLET', 'Base link ready');
+  return t;
+  function draw(title, status) {
+  ctx.clearRect(0, 0, 640, 400);
   const g = ctx.createLinearGradient(0, 0, 0, 400);
   g.addColorStop(0, '#0f2a33');
   g.addColorStop(1, '#081820');
@@ -69,31 +76,35 @@ function screenIdleTexture() {
   for (let y = 0; y < 400; y += 32) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(640, y); ctx.stroke(); }
   ctx.fillStyle = '#9ee3de';
   ctx.font = '700 34px system-ui, Arial, sans-serif';
-  ctx.fillText('MISSION TABLET', 40, 70);
+  ctx.fillText(title, 40, 70);
   ctx.fillStyle = 'rgba(158, 227, 222, 0.55)';
   ctx.font = '500 22px system-ui, Arial, sans-serif';
-  ctx.fillText('Base link ready', 40, 110);
+  ctx.fillText(status, 40, 110);
   ctx.fillStyle = '#58c27d';
   ctx.beginPath(); ctx.arc(600, 58, 10, 0, Math.PI * 2); ctx.fill();
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
+  }
 }
 
 function labelTexture(text) {
   const c = document.createElement('canvas');
   c.width = 512; c.height = 64;
   const ctx = c.getContext('2d');
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.userData.setText = (s) => { draw(s); t.needsUpdate = true; };
+  draw(text);
+  return t;
+  function draw(text) {
   ctx.fillStyle = '#d9d6cf';
   ctx.fillRect(0, 0, 512, 64);
   ctx.fillStyle = '#3a3f47';
   ctx.font = '700 34px system-ui, Arial, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  let size = 34;
+  while (ctx.measureText(text).width > 480 && size > 18) { size -= 2; ctx.font = `700 ${size}px system-ui, Arial, sans-serif`; }
   ctx.fillText(text, 256, 34);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
+  }
 }
 
 export function createTabletModel() {
@@ -167,7 +178,8 @@ export function createTabletModel() {
     device.add(k);
   }
   // Small label on the top bezel.
-  const label = new THREE.Mesh(new THREE.PlaneGeometry(0.075, 0.0094), new THREE.MeshBasicMaterial({ map: labelTexture('FIELD UNIT 01'), toneMapped: false }));
+  const labelTex = labelTexture('FIELD UNIT 01');
+  const label = new THREE.Mesh(new THREE.PlaneGeometry(0.075, 0.0094), new THREE.MeshBasicMaterial({ map: labelTex, toneMapped: false }));
   label.position.set(0, SH / 2 + (H - SH) / 4 + 0.001, D / 2 + 0.0004);
   device.add(label);
   // Back plate with a strap.
@@ -205,6 +217,11 @@ export function createTabletModel() {
   return {
     tabletRoot, device, screenAnchor, gripLeft, gripRight, screenMaterial: mats.screen,
     setOrientation,
+    // Language switch: t(key) from src/i18n.js
+    setTexts(t) {
+      labelTex.userData.setText(t('tablet.unit'));
+      mats.screen.emissiveMap.userData.setText(t('tablet.idleTitle'), t('tablet.idleStatus'));
+    },
     get orientation() { return orientation; },
     get size() { return orientation === 'portrait' ? { width: H, height: W, depth: D } : { width: W, height: H, depth: D }; },
     dispose,

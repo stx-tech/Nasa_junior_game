@@ -181,6 +181,7 @@ export function createMoonEnvironment({ seed = MOON_SEED } = {}) {
     setShift,
     setSelected,
     setHovered: base.setHovered,
+    setTexts: base.setTexts, // (t) => redraw signs, readout and the Selected tag in the current language
     update,
     dispose,
     get shift() { return currentShift; },

@@ -73,10 +73,17 @@ function drawIcon(ctx, kind, cx, cy, s, color) {
 }
 
 // Module name sign: dark plate, bright text, icon on the left.
+// Returned textures can be redrawn: tex.userData.setText('NEW TEXT') (language switch).
 export function makeSignTexture({ text, icon, bg = '#1d2430', fg = '#f4f1e8', accent = '#f2a23a', w = 1024, h = 256 }) {
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
   const ctx = c.getContext('2d');
+  const tex = canvasTexture(c);
+  tex.userData.setText = (s) => { draw(s); tex.needsUpdate = true; };
+  draw(text);
+  return tex;
+  function draw(text) {
+  ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
   ctx.fillStyle = accent;
@@ -95,7 +102,7 @@ export function makeSignTexture({ text, icon, bg = '#1d2430', fg = '#f4f1e8', ac
   }
   ctx.textBaseline = 'middle';
   ctx.fillText(text, x, h * 0.46);
-  return canvasTexture(c);
+  }
 }
 
 // Readout panel for the solar array ("Solar output: 7"). Redrawn per shift.
@@ -104,7 +111,18 @@ export function createReadout() {
   c.width = 512; c.height = 256;
   const ctx = c.getContext('2d');
   const tex = canvasTexture(c);
-  function draw(value, lit) {
+  const fit = (text, weight, size, maxW) => {
+    ctx.font = `${weight} ${size}px "Segoe UI", Arial, sans-serif`;
+    while (ctx.measureText(text).width > maxW && size > 18) {
+      size -= 2;
+      ctx.font = `${weight} ${size}px "Segoe UI", Arial, sans-serif`;
+    }
+  };
+  let labels = { output: 'Solar output', sunlight: 'In sunlight', shadow: 'In shadow' };
+  let last = [0, false];
+  function draw(value, lit, newLabels) {
+    if (newLabels) labels = newLabels;
+    last = [value, lit];
     ctx.fillStyle = '#10151d';
     ctx.fillRect(0, 0, 512, 256);
     ctx.strokeStyle = lit ? '#58c27d' : '#e0533d';
@@ -112,19 +130,20 @@ export function createReadout() {
     ctx.strokeRect(8, 8, 496, 240);
     drawIcon(ctx, 'sun', 92, 128, 140, lit ? '#ffd166' : '#5b6170');
     ctx.fillStyle = '#f4f1e8';
-    ctx.font = '600 50px "Segoe UI", Arial, sans-serif';
     ctx.textBaseline = 'middle';
-    ctx.fillText('Solar output', 180, 88);
+    fit(labels.output, 600, 50, 312);
+    ctx.fillText(labels.output, 180, 88);
     ctx.font = '800 96px "Segoe UI", Arial, sans-serif';
     ctx.fillStyle = lit ? '#7ee2a0' : '#ff7a63';
     ctx.fillText(String(value), 180, 176);
-    ctx.font = '600 40px "Segoe UI", Arial, sans-serif';
     ctx.fillStyle = '#c9ced6';
-    ctx.fillText(lit ? 'In sunlight' : 'In shadow', 290, 184);
+    const state = lit ? labels.sunlight : labels.shadow;
+    fit(state, 600, 40, 200);
+    ctx.fillText(state, 290, 184);
     tex.needsUpdate = true;
   }
   draw(0, false);
-  return { texture: tex, draw };
+  return { texture: tex, draw, setLabels(l) { draw(last[0], last[1], l); } };
 }
 
 // "Selected" floating tag.
@@ -132,6 +151,12 @@ export function makeTagTexture(text = 'Selected') {
   const c = document.createElement('canvas');
   c.width = 512; c.height = 160;
   const ctx = c.getContext('2d');
+  const tex = canvasTexture(c);
+  tex.userData.setText = (s) => { draw(s); tex.needsUpdate = true; };
+  draw(text);
+  return tex;
+  function draw(text) {
+  ctx.clearRect(0, 0, 512, 160);
   ctx.fillStyle = 'rgba(12, 20, 32, 0.88)';
   const r = 40;
   ctx.beginPath();
@@ -151,10 +176,12 @@ export function makeTagTexture(text = 'Selected') {
   ctx.moveTo(60, 82); ctx.lineTo(95, 115); ctx.lineTo(150, 48);
   ctx.stroke();
   ctx.fillStyle = '#ffffff';
-  ctx.font = '700 70px "Segoe UI", Arial, sans-serif';
+  let size = 70;
+  ctx.font = `700 ${size}px "Segoe UI", Arial, sans-serif`;
+  while (ctx.measureText(text).width > 300 && size > 30) { size -= 2; ctx.font = `700 ${size}px "Segoe UI", Arial, sans-serif`; }
   ctx.textBaseline = 'middle';
   ctx.fillText(text, 180, 84);
-  return canvasTexture(c);
+  }
 }
 
 // Solar cell grid on a dark blue panel.

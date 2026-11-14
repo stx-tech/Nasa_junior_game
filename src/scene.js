@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { createMoonEnvironment } from './scenes/moon/index.js';
 import { createViewModel } from './fp/viewmodel.js';
+import { createJumpBody } from './fp/jump.js';
 
 const appearance = {
   mars: [0x3b2427, 0xa45a40],
@@ -9,6 +10,9 @@ const appearance = {
 
 const CLICK_SLOP = 6; // CSS px: below = click (select), above = drag (look)
 const DRAG_LOOK = 0.005; // rad per CSS px
+const WALK_SPEED = 3.8; // m/s (unchanged)
+// Long Moon jump — game tuning for a low-gravity feel (≈1.5 s airtime, ≈1 m apex on flat ground).
+const MOON_JUMP = { height: 1.05, airtime: 1.5, takeoffBoost: 1.15, airSpeed: 1.2, airControl: 5, airDrag: 0.6 };
 
 // Mounts the 3D view once per mission and returns a controller.
 // The view is NOT rebuilt on clicks or shifts: call setShift() instead.
@@ -19,13 +23,13 @@ const DRAG_LOOK = 0.005; // rad per CSS px
 //   view.viewmodel            // tablet + gloves layer (see src/fp/viewmodel.js)
 //   view.focus()              // give keyboard focus back to the scene
 //   view.stop()               // dispose everything
-export function mountScene(container, mission, shift, selected, onSelect, pose, { onFrame } = {}) {
+export function mountScene(container, mission, shift, selected, onSelect, pose, { onFrame, t } = {}) {
   let renderer;
   try {
     renderer = new THREE.WebGLRenderer({ antialias: true });
   } catch {
-    container.textContent = 'The 3D view is unavailable. Use the Mission Tablet to plan each shift.';
-    return { stop() {}, setShift() {}, setInputEnabled() {}, focus() {}, viewmodel: null, canvas: null };
+    container.textContent = t ? t('scene.unavailable') : 'The 3D view is unavailable. Use the Mission Tablet to plan each shift.';
+    return { stop() {}, setShift() {}, setInputEnabled() {}, setTexts() {}, focus() {}, viewmodel: null, canvas: null };
   }
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.autoClear = false;
@@ -55,6 +59,13 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
     if (pose.x === undefined) Object.assign(pose, { x: 0, z: 4.3, yaw: 0, pitch: -0.14 });
   }
   const targets = placeholder ? placeholder.targets : [];
+  const body = moon ? createJumpBody(MOON_JUMP) : null;
+  body?.snapTo(moon.heightAt(pose.x, pose.z));
+  const hv = { x: 0, z: 0 }; // horizontal velocity (m/s), kept through the air
+  let jumpRequested = false;
+  let spaceHeld = false;
+  let landingDip = 0;
+  let simTime = 0;
 
   function setShift(n) {
     if (moon) moon.setShift(n, { solarOutput: mission.generation[n] });
@@ -142,6 +153,8 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
   function resetInput() {
     keys.clear();
     endDrag();
+    spaceHeld = false;
+    jumpRequested = false;
   }
 
   canvas.addEventListener('pointerdown', (event) => {
@@ -181,6 +194,12 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
   const movementKeys = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']);
   canvas.addEventListener('keydown', (event) => {
     if (!inputEnabled) return;
+    if (event.code === 'Space' && body) {
+      event.preventDefault(); // no page scroll; buttons elsewhere keep their own Space behaviour
+      if (!event.repeat && !spaceHeld) jumpRequested = true; // holding Space gives one jump
+      spaceHeld = true;
+      return;
+    }
     if (event.code === 'KeyE' || event.code === 'Enter') {
       event.preventDefault();
       if (!event.repeat) selectAt(center);
@@ -190,7 +209,10 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
     event.preventDefault();
     keys.add(event.code);
   });
-  canvas.addEventListener('keyup', (event) => keys.delete(event.code));
+  canvas.addEventListener('keyup', (event) => {
+    keys.delete(event.code);
+    if (event.code === 'Space') spaceHeld = false;
+  });
   canvas.addEventListener('blur', resetInput);
   const onWindowBlur = () => resetInput();
   window.addEventListener('blur', onWindowBlur);
@@ -207,7 +229,7 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
     Math.abs(x - position.x) < 1.15 && Math.abs(z - position.z) < 1.1);
   const pressed = (key) => Number(keys.has(key));
   function syncCamera() {
-    const height = moon ? moon.heightAt(pose.x, pose.z) + moon.eyeHeight : 1.55;
+    const height = moon ? body.feetY + moon.eyeHeight - landingDip : 1.55;
     camera.position.set(pose.x, height, pose.z);
     camera.rotation.set(pose.pitch, pose.yaw, 0);
     camera.updateMatrixWorld();
@@ -223,18 +245,51 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
       pose.pitch = THREE.MathUtils.clamp(
         pose.pitch + (pressed('ArrowUp') - pressed('ArrowDown')) * dt * 1.4, -1.2, 1.2,
       );
+      simTime += dt;
       const forward = pressed('KeyW') - pressed('KeyS');
       const side = pressed('KeyD') - pressed('KeyA');
-      const speed = 3.8 * dt / (Math.hypot(forward, side) || 1);
+      const speed = WALK_SPEED * dt / (Math.hypot(forward, side) || 1);
       const dx = (side * Math.cos(pose.yaw) - forward * Math.sin(pose.yaw)) * speed;
       const dz = (-side * Math.sin(pose.yaw) - forward * Math.cos(pose.yaw)) * speed;
-      if (moon && (dx || dz)) {
-        const steps = Math.ceil(Math.hypot(dx, dz) / 0.15);
-        for (let step = 0; step < steps; step++) {
-          const next = moon.resolveMove(pose.x, pose.z, pose.x + dx / steps, pose.z + dz / steps);
-          pose.x = next.x;
-          pose.z = next.z;
+      if (moon) {
+        // Desired ground velocity from WASD (m/s).
+        const wantX = dt ? dx / dt : 0, wantZ = dt ? dz / dt : 0;
+        const moving = wantX !== 0 || wantZ !== 0;
+        if (jumpRequested) {
+          jumpRequested = false;
+          if (body.tryJump()) {
+            hv.x = wantX * MOON_JUMP.takeoffBoost;
+            hv.z = wantZ * MOON_JUMP.takeoffBoost;
+          }
         }
+        if (body.grounded) {
+          hv.x = wantX; hv.z = wantZ;
+        } else {
+          // In the air: keep momentum, steer gently with WASD.
+          const tx = moving ? wantX * MOON_JUMP.airSpeed : hv.x;
+          const tz = moving ? wantZ * MOON_JUMP.airSpeed : hv.z;
+          const rate = (moving ? MOON_JUMP.airControl : MOON_JUMP.airDrag) * dt;
+          const ax = (moving ? tx : 0) - hv.x, az = (moving ? tz : 0) - hv.z;
+          const len = Math.hypot(ax, az);
+          if (len > 0) { const k = Math.min(1, rate / len); hv.x += ax * k; hv.z += az * k; }
+        }
+        const mx = hv.x * dt, mz = hv.z * dt;
+        if (mx || mz) {
+          const x0 = pose.x, z0 = pose.z;
+          const steps = Math.ceil(Math.hypot(mx, mz) / 0.15);
+          for (let step = 0; step < steps; step++) {
+            const next = moon.resolveMove(pose.x, pose.z, pose.x + mx / steps, pose.z + mz / steps);
+            pose.x = next.x;
+            pose.z = next.z;
+          }
+          // Blocked by a wall or the map edge: lose that part of the momentum.
+          if (dt && !body.grounded) {
+            if (Math.abs(pose.x - x0) < Math.abs(mx) * 0.5) hv.x = (pose.x - x0) / dt;
+            if (Math.abs(pose.z - z0) < Math.abs(mz) * 0.5) hv.z = (pose.z - z0) / dt;
+          }
+        }
+        body.step(dt, () => moon.heightAt(pose.x, pose.z));
+        if (body.landedThisStep) landingDip = 0.12;
       } else if (!moon) {
         const x = THREE.MathUtils.clamp(pose.x + dx, -7.6, 7.6);
         const z = THREE.MathUtils.clamp(pose.z + dz, -4.6, 4.6);
@@ -242,6 +297,7 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
         if (!isBlocked(pose.x, z)) pose.z = z;
       }
     }
+    landingDip *= Math.exp(-10 * dt);
     syncCamera();
     if (moon) {
       moon.update(dt, camera);
@@ -288,6 +344,19 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
     setShift,
     setInputEnabled,
     get inputEnabled() { return inputEnabled; },
+    // Language switch: canvas name, Moon map signs, tablet label/idle screen.
+    setTexts(tr) {
+      canvas.setAttribute('aria-label', tr('scene.label'));
+      moon?.setTexts(tr);
+      viewmodel.tablet.setTexts(tr);
+    },
+    // Read-only state for tests.
+    debug: {
+      get grounded() { return body ? body.grounded : true; },
+      get feetY() { return body ? body.feetY : 0; },
+      get groundY() { return moon ? moon.heightAt(pose.x, pose.z) : 0; },
+      get simTime() { return simTime; },
+    },
     focus() { canvas.focus({ preventScroll: true }); },
     stop() {
       window.removeEventListener('blur', onWindowBlur);
