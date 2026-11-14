@@ -1,5 +1,5 @@
 import { missions, modules } from './missions.js';
-import { available, choices, estimate, runShift, start } from './simulation.js';
+import { available, choices, estimate, runShift, start, preview, progress } from './simulation.js';
 import { mountScene } from './scene.js';
 import { createTabletUI } from './fp/tablet-ui.js';
 import {
@@ -20,6 +20,7 @@ let stage = 'intro'; // 'intro' -> 'mission' -> 'complete'
 let baseline = 0;
 let firstEarthResult = null;
 let earthResult = null;
+let predictionOpen = false; // the optional prediction panel stays open across re-renders
 let hints = 0;
 let retries = 0;
 let earthHintShift = -1;
@@ -219,9 +220,20 @@ hud.start.addEventListener('click', () => openTablet());
 // ---------------------------------------------------------------------------
 // Module selection (from 3D clicks or tablet buttons)
 // ---------------------------------------------------------------------------
+let hudNoticeTimer = 0;
+function hudNotice(text) {
+  hud.selection.hidden = false;
+  hud.selection.textContent = text;
+  clearTimeout(hudNoticeTimer);
+  hudNoticeTimer = setTimeout(updateHUD, 3000);
+}
+
 function toggleModule(key) {
   if (stage !== 'mission' || state.status !== 'active') return;
-  if (!choices(mission(), state).includes(key)) return;
+  if (!choices(mission(), state).includes(key)) {
+    if (mission().modules.includes(key)) hudNotice(t('hud.unavailable', { name: moduleText(modules, key, 'name') }));
+    return;
+  }
   if (selected.has(key)) selected.delete(key); else selected.add(key);
   updateHUD();
   renderTablet({ keepFocus: tablet?.isOpen }); // keep the tablet page in sync even while it is down
@@ -230,7 +242,19 @@ function toggleModule(key) {
 // ---------------------------------------------------------------------------
 // HUD + static texts
 // ---------------------------------------------------------------------------
+function updateWorld() {
+  if (!view?.setStatus) return;
+  const items = progress(mission(), state);
+  const air = items.find((i) => i.key === 'air');
+  const rocks = items.find((i) => i.key === 'rocks');
+  view.setStatus({
+    crew: air ? { text: t('world.air', { v: air.value, t: air.target }), warn: air.value === 0 } : null,
+    lab: rocks ? { text: t('world.rocks', { v: rocks.value, t: rocks.target }), done: rocks.done } : null,
+  });
+}
+
 function updateHUD() {
+  updateWorld();
   const m = mission();
   const intro = stage === 'intro';
   hud.root.hidden = intro;
@@ -282,6 +306,44 @@ function feedbackList(items) {
   const ul = el('ul', { class: 't-feedback' });
   for (const message of items) ul.append(el('li', { text: feedbackText(message) }));
   return ul;
+}
+
+// "What you did -> what changed -> why" for the last shift (same data for tablet and result page).
+function shiftResultCard(m, { focus = false } = {}) {
+  if (!state.cause && !state.lastPlan.length && !state.feedback.length) return null;
+  const did = state.lastPlan.length
+    ? t('report.did', { list: state.lastPlan.map((k) => moduleText(modules, k, 'name')).join(', ') })
+    : t('report.didNothing');
+  const changes = state.feedback.filter((msg) => !msg.startsWith('You predicted ') && !msg.startsWith('The crew ate '));
+  const prediction = state.feedback.find((msg) => msg.startsWith('You predicted '));
+  const card = el('section', { class: `t-result${focus ? ' fresh' : ''}` },
+    el('h3', { text: t('report.title', { n: state.shift }), tabindex: '-1', 'data-autofocus': focus ? true : null }),
+    el('p', { class: 'r-did' }, el('span', { class: 'r-label', text: '1' }), did),
+    el('div', { class: 'r-changed' }, el('span', { class: 'r-label', text: '2' }),
+      el('div', {}, el('strong', { text: t('report.changed') }), feedbackList(changes.slice(0, 3)))),
+    state.cause ? el('p', { class: 'r-why' }, el('span', { class: 'r-label', text: '3' }),
+      el('span', {}, el('strong', { text: `${t('report.why')}: ` }), feedbackText(state.cause))) : null,
+    prediction ? el('p', { class: 'r-prediction', text: feedbackText(prediction) }) : null);
+  if (state.feedback.length > 3) {
+    card.append(el('details', { class: 't-details' }, el('summary', { text: t('report.all') }), feedbackList(state.feedback)));
+  }
+  return card;
+}
+
+function goalsList(m) {
+  const items = progress(m, state);
+  const list = el('ul', { class: 't-goals', 'aria-label': t('progress.title') });
+  for (const it of items) {
+    let text;
+    if (it.key === 'rocks') text = t('progress.rocks', { v: it.value, t: it.target });
+    else if (it.key === 'harvest') text = `${t('progress.harvest', { v: it.value, t: it.target })}${it.done ? '' : ` (${t('progress.growth', { g: it.growth })})`}`;
+    else if (it.key === 'air') text = t('progress.air', { v: it.value, t: it.target });
+    else if (it.key === 'food') text = t('progress.food', { v: it.value });
+    else text = t('progress.watered', { v: it.value, t: it.target });
+    const warn = (it.key === 'air' && it.value === 0) || (it.key === 'food' && it.value <= 1);
+    list.append(el('li', { class: it.done ? 'done' : (warn ? 'warn' : '') }, it.done ? '✓ ' : '', text));
+  }
+  return list;
 }
 
 function precheckPage() {
@@ -369,21 +431,15 @@ function planPage() {
     t('plan.batteryAfter', { n: Math.max(0, budget.stored) }),
   ];
   const parts = [];
-  if (m.id !== 'earth') parts.push(t('plan.air', { n: state.air }), t('plan.water', { n: state.water }), t('plan.samples', { n: state.samples }));
+  // Air and rocks are shown in the goal chips (backup tanks), so the supplies line has only water.
+  if (m.id !== 'earth') parts.push(t('plan.water', { n: state.water }));
   if (m.id === 'mars') parts.push(t('plan.food', { n: state.food }), t('plan.growth', { n: state.growth }), t('plan.harvests', { n: state.crops }));
 
   const info = el('section', { class: 't-col t-info' },
     el('p', { class: 't-objective', text: missionText(m, 'objective') }),
     el('p', { class: 't-forecast', text: missionText(m, 'forecast', state.shift) }));
-  if (state.feedback.length) {
-    const outcome = state.feedback.find(message => !message.startsWith('You predicted '));
-    info.append(el('details', { class: 't-details' },
-      el('summary', { text: t('plan.lastShift') }),
-      feedbackList(state.feedback)));
-    if (freshReport && outcome) info.prepend(el('p', {
-      class: 't-outcome', tabindex: '-1', 'data-autofocus': true, text: feedbackText(outcome),
-    }));
-  }
+  const resultCard = state.shift > 0 ? shiftResultCard(m, { focus: freshReport }) : null;
+  if (resultCard) info.prepend(resultCard);
   if (m.science) {
     info.append(el('details', {},
       el('summary', { text: t('science.summary') }),
@@ -406,6 +462,11 @@ function planPage() {
   }
   const warning = el('p', { role: 'status', class: 't-warning', text: t('plan.shortBy', { n: -budget.remaining }) });
   warning.hidden = budget.remaining >= 0;
+  // Critical risks explained BEFORE the shift (same rules as runShift).
+  const risks = preview(m, state, [...selected]);
+  const riskList = el('ul', { class: 't-risks', 'aria-label': t('warn.title') });
+  for (const r of risks.slice(0, 2)) riskList.append(el('li', { class: r.level }, r.level === 'danger' ? '⚠ ' : '• ', feedbackText(r.text)));
+  riskList.hidden = !risks.length;
   const run = el('button', { type: 'button', class: 'tablet-run', text: t('plan.run'), onclick: () => {
     const predicted = prediction.value;
     state = runShift(m, state, selected);
@@ -425,10 +486,13 @@ function planPage() {
   if (parts.length) plan.append(el('details', { class: 't-details' },
     el('summary', { text: t('plan.supplies') }),
     el('p', { class: 'stats', text: parts.join(' · ') })));
-  plan.append(el('details', { class: 't-details' },
+  const predictBox = el('details', { class: 't-details t-predict' },
     el('summary', { text: prediction.key === predictionKey() && prediction.value !== null
       ? t('predict.valueText', { n: prediction.value }) : t('plan.optionalPrediction') }),
-    predictionControl()));
+    predictionControl());
+  predictBox.open = predictionOpen;
+  predictBox.addEventListener('toggle', () => { predictionOpen = predictBox.open; });
+  plan.append(predictBox);
   if (m.id === 'earth') {
     const hint = el('p', { class: 't-hint', text: t('plan.hint') });
     if (earthHintShift === state.shift) plan.append(hint);
@@ -444,18 +508,25 @@ function planPage() {
   const guide = el('aside', { class: 't-guide' },
     el('span', { class: 'guide-face', 'aria-hidden': 'true', text: '👩‍🚀' }),
     el('div', {}, el('strong', { text: t('plan.guide') }),
-      el('p', { text: t(selected.size ? 'plan.guideSelected' : 'plan.guideStart') })));
+      el('p', { text: t(selected.size ? 'plan.guideSelected' : 'plan.guideStart') }),
+      // First Moon shift: one question to think about (the child decides alone).
+      m.id === 'moon' && state.shift === 0 ? el('p', { class: 'guide-question', text: t('plan.guideQuestionMoon') }) : null));
   return [header(missionText(m, 'title'), t('plan.shiftOf', { n: state.shift + 1, total: m.generation.length })),
-    el('div', { class: 't-plan-scroll' }, guide, el('div', { class: 't-grid' }, info, plan)),
-    el('footer', { class: 't-plan-footer' }, warning, run)];
+    el('div', { class: 't-plan-scroll' }, guide, goalsList(m), el('div', { class: 't-grid' }, info, plan)),
+    el('footer', { class: 't-plan-footer' }, warning, riskList, run)];
 }
 
 function resultPage() {
   const m = mission();
   const nodes = [header(state.status === 'won' ? t('result.won') : t('result.review'), missionText(m, 'title'))];
-  nodes.push(el('section', { class: 't-report fresh' },
-    el('h3', { text: t('result.happened'), tabindex: '-1', 'data-autofocus': true }),
-    feedbackList(state.feedback)));
+  if (state.failReason) {
+    nodes.push(el('section', { class: 't-fail', role: 'alert' },
+      el('h3', { text: t('result.whyStopped'), tabindex: '-1', 'data-autofocus': true }),
+      el('p', { class: 'fail-reason', text: feedbackText(state.failReason) })));
+  }
+  const card = shiftResultCard(m, { focus: !state.failReason });
+  if (card) nodes.push(card);
+  nodes.push(goalsList(m));
   const actions = el('div', { class: 't-actions' });
   if (m.id === 'earth' && earthResult === null) {
     nodes.push(el('h3', { text: t('earth.question') }));
@@ -475,7 +546,9 @@ function resultPage() {
     } }));
   }
   if (m.id !== 'earth' || earthResult !== null) {
-    actions.append(el('button', { type: 'button', text: t('result.retry'), onclick: () => {
+    const failed = state.status === 'failed';
+    if (failed) nodes.push(el('p', { class: 't-sub', text: t('result.tryAgainHint') }));
+    actions.append(el('button', { type: 'button', class: failed ? 't-primary' : null, text: t('result.retry'), onclick: () => {
       if (m.id === 'earth') {
         retries += 1;
         earthResult = null;

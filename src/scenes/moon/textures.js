@@ -245,3 +245,33 @@ export function makeEarthTexture(seed) {
   ctx.putImageData(img, 0, 0);
   return canvasTexture(c);
 }
+
+// Small status plate over a module ("Rocks 1/2"). tex.userData.set(text, mode) — mode: 'normal' | 'warn' | 'done'.
+export function makeStatusTexture() {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 128;
+  const ctx = c.getContext('2d');
+  const tex = canvasTexture(c);
+  const colors = { normal: ['rgba(12,20,32,0.88)', '#9ee3de'], warn: ['rgba(60,30,10,0.92)', '#ffb35c'], done: ['rgba(10,40,24,0.92)', '#7ee2a0'] };
+  tex.userData.set = (text, mode = 'normal') => {
+    const [bg, fg] = colors[mode] || colors.normal;
+    ctx.clearRect(0, 0, 512, 128);
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    ctx.roundRect(6, 6, 500, 116, 36);
+    ctx.fill();
+    ctx.strokeStyle = fg;
+    ctx.lineWidth = 6;
+    ctx.stroke();
+    ctx.fillStyle = fg;
+    let size = 58;
+    ctx.font = `700 ${size}px "Segoe UI", Arial, sans-serif`;
+    const label = mode === 'done' ? `✓ ${text}` : text;
+    while (ctx.measureText(label).width > 460 && size > 26) { size -= 2; ctx.font = `700 ${size}px "Segoe UI", Arial, sans-serif`; }
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, 256, 66);
+    tex.needsUpdate = true;
+  };
+  return tex;
+}

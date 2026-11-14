@@ -4,7 +4,7 @@ export const missions = [
   {
     id: 'moon',
     title: 'Moon · The Long Shadow',
-    objective: 'Give the astronauts air to breathe for all 4 shifts. Study 2 Moon rocks in the lab.',
+    objective: 'Keep the astronauts breathing for 4 shifts and study 2 Moon rocks in the lab. There is 1 backup air tank for an emergency.',
     forecast: [
       'Solar panels turn sunlight into electricity. A hill will shade them next shift.',
       'The solar panels are in shadow and make no electricity. You can only use what is in the battery.',
@@ -13,18 +13,18 @@ export const missions = [
     ],
     generation: [7, 0, 7, 7],
     battery: 1,
-    air: 1,
+    air: 2, // 1 backup tank: skipping Life Support once is a recoverable mistake
     labTarget: 2,
     modules: ['crew', 'lab'],
   },
   {
     id: 'mars',
     title: 'Mars · Dust on the Horizon',
-    objective: 'Keep the crew safe, harvest food once, and study 2 samples in the lab.',
+    objective: 'Keep the crew safe, harvest food once and study 2 rocks. The crew eats 1 food every shift, and there are 3 food packs.',
     forecast: [
-      'A dust storm is approaching. This is your best chance to store power.',
+      'A dust storm is coming. The sun is strong now, but the battery holds only 10. Use the extra power now and keep some for the dusty shifts.',
       'Dust blocks the sun. A radiation warning is expected next shift. Radiation is invisible rays and particles that can harm astronauts.',
-      'The panels still make little electricity. There is a radiation warning. Move the crew into the safe room.',
+      'The panels still make little electricity. There is a radiation warning now: astronauts outside the Shelter would be in danger.',
       'The skies are a little brighter. Solar power is still below normal.',
     ],
     generation: marsGeneration,
@@ -43,7 +43,7 @@ export const missions = [
     title: 'Earth · Keep the Pump Ready',
     objective: 'Water the greenhouse after sunset. You have one battery to power the station.',
     forecast: [
-      'The station has 7 energy. The lab can run now, and the greenhouse needs water after sunset.',
+      'The station has 7 energy and no sunlight until morning. The lab can run a test now. After sunset the plants need the water pump.',
       'The power is still out. Turn on the water pump to water the plants.',
     ],
     generation: [0, 0],

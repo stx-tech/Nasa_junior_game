@@ -137,7 +137,7 @@ def main():
                     pg.click(f'[data-module="{m}"]')
             pg.click('.tablet-run'); pg.wait_for_timeout(700)
             if i == 0:
-                check('after Run Shift the tablet shows what changed', pg.is_visible('.t-report.fresh') or pg.is_visible('.t-report'))
+                check('after Run Shift the tablet shows what changed', pg.is_visible('.t-result.fresh'))
                 check('same canvas after Run Shift (no remount)', pg.evaluate('window.__canvasRef === window.__game.view.canvas'))
                 check('camera position kept after Run Shift', pose() == p1)
                 shot('05_tablet_after_shift1')

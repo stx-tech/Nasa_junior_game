@@ -122,6 +122,7 @@ def main():
         # ---------- Slider ----------
         ev('window.__game.view.focus()')
         pg.keyboard.press('t'); wait_vm('up')
+        pg.click('details.t-predict summary')  # the prediction is optional and folded on the tablet
         check('prediction starts not set', ev('window.__game.prediction') is None and pg.inner_text('.predict-value') == '—')
         slider = pg.locator('#predict-slider')
         slider.focus(); pg.keyboard.press('End')
@@ -152,7 +153,7 @@ def main():
         check('lang attribute becomes uk', ev('document.documentElement.lang') == 'uk')
         check('HUD title translated', ev("document.querySelector('.hud-title').textContent") == 'Місяць · Довга тінь')
         text = pg.inner_text('.tablet-content')
-        check('tablet translated (plan + slider)', 'Сплануй цю зміну' in text and 'Спрогнозуй заряд' in text and 'Батарея розряджена' in text)
+        check('tablet translated (plan + slider)', 'Запустити зміну' in text and 'Як думаєш, скільки заряду' in text and 'Батарея розряджена' in text)
         check('selection, prediction, pose and tablet kept', ev('window.__game.selected') == ['crew'] and ev('window.__game.prediction') == 9
               and ev('({...window.__game.pose})') == pose_before and ev('window.__game.view.viewmodel.isOpen'))
         check('accessible names translated', pg.get_attribute('.settings-toggle', 'aria-label') == 'Налаштування' and 'База від першої особи' in pg.get_attribute('#view canvas', 'aria-label'))
@@ -161,11 +162,11 @@ def main():
         check('Esc closes Settings first, tablet stays up, focus back in the tablet',
               not ev('window.__game.settingsOpen') and ev('window.__game.view.viewmodel.isOpen') and ev("document.querySelector('.tablet-ui').contains(document.activeElement)"))
         pg.click('.tablet-run'); pg.wait_for_timeout(800)
-        rep = pg.inner_text('.t-report')
-        check('report after Run Shift in Ukrainian with the prediction', 'Твій прогноз: 9 од. енергії' in rep and 'Життєзабезпечення відновило' in rep, rep.replace('\n', ' | ')[:160])
+        rep = pg.inner_text('.t-result')
+        check('report after Run Shift in Ukrainian with the prediction', 'Твій прогноз: 9 од. енергії' in rep and 'Життєзабезпечення дало' in rep, rep.replace('\n', ' | ')[:160])
         check('next shift starts with prediction not set', ev('window.__game.prediction') is None)
         pg.click('.predict-zero'); pg.click('[data-module="crew"]'); pg.click('.tablet-run'); pg.wait_for_timeout(800)
-        check('prediction 0 reaches the report', 'Твій прогноз: 0 од. енергії' in pg.inner_text('.t-report'))
+        check('prediction 0 reaches the report', 'Твій прогноз: 0 од. енергії' in pg.inner_text('.t-result'))
         pg.screenshot(path=f'{OUT}/tablet_report_uk.png')
         storage = ctx.storage_state()
         check('no page errors', not errors, '; '.join(errors[:3]))
@@ -192,6 +193,8 @@ def main():
         overlap = not (r['g'][3] <= r['h'][1] or r['h'][3] <= r['g'][1] or r['g'][2] <= r['h'][0] or r['h'][2] <= r['g'][0])
         check('narrow: gear stays next to Tablet and does not cover the mission title', r['g'][2] <= r['t'][0] and not overlap, json.dumps(r))
         pg.click('.tablet-toggle'); wait_vm('up')
+        pg.click('details.t-predict summary')
+        pg.locator('#predict-slider').scroll_into_view_if_needed(); pg.wait_for_timeout(300)
         box = pg.locator('#predict-slider').bounding_box()
         check('narrow: slider touch target ≥ 44 px tall', box['height'] >= 44, f"{box['height']:.0f}px × {box['width']:.0f}px")
         pg.touchscreen.tap(box['x'] + box['width'] * 0.02, box['y'] + box['height'] / 2); pg.wait_for_timeout(300)

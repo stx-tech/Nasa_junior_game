@@ -218,3 +218,28 @@ label.choice:has(input:checked) { background: #075e51; border-color: #75e6c6; }
   .predict input[type="range"] { height: 48px; } /* bigger touch target */
   .hud-help { font-size: 0.72rem; right: 12px; }
 }
+
+/* ---------- Gameplay feedback on the tablet ---------- */
+.guide-question { margin-top: 0.35em !important; font-weight: 700; color: #ffe2b8; }
+.t-goals { list-style: none; margin: 0 0 0.6em; padding: 0; display: flex; flex-wrap: wrap; gap: 0.35em; }
+.t-goals li { padding: 0.25em 0.6em; border-radius: 999px; background: #16303a; border: 1px solid #4d7178; font-size: 0.88em; }
+.t-goals li.done { background: #0f3d2c; border-color: var(--ok); color: #bff3d2; }
+.t-goals li.warn { background: #3a2612; border-color: var(--warn); color: #ffe2b8; }
+.t-result { margin-bottom: 0.6em; padding: 0.55em 0.7em; border-radius: 8px; background: #11303a; border: 1px solid #2f6670; }
+.t-result.fresh { border-color: var(--accent); box-shadow: 0 0 0 2px #9ee3de33; }
+.t-result h3 { margin: 0 0 0.35em; font-size: 1em; }
+.t-result h3:focus { outline: none; }
+.t-result > p, .r-changed { display: flex; gap: 0.5em; align-items: flex-start; margin: 0.25em 0; }
+.r-changed ul { margin: 0.1em 0 0; padding-left: 1.1em; }
+.r-label { flex: none; display: inline-grid; place-items: center; width: 1.4em; height: 1.4em; border-radius: 50%; background: #1f4a4f; color: var(--accent); font-size: 0.8em; font-weight: 800; }
+.r-why { color: #ffe2b8; }
+.r-prediction { color: #c7d5dc; font-size: 0.88em; }
+.t-risks { list-style: none; margin: 0 0 0.35em; padding: 0; font-size: 0.9em; }
+.t-risks[hidden] { display: none; }
+.t-risks li { padding: 0.2em 0; }
+.t-risks li.danger { color: #ff9b87; font-weight: 700; }
+.t-risks li.info { color: #ffe2b8; }
+.t-fail { margin-bottom: 0.6em; padding: 0.6em 0.75em; border-radius: 8px; background: #3a1712; border: 2px solid #ff8a73; }
+.t-fail h3 { margin: 0 0 0.25em; font-size: 1em; color: #ffb3a3; }
+.t-fail h3:focus { outline: none; }
+.fail-reason { margin: 0; font-weight: 700; font-size: 1.05em; }

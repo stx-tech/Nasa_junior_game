@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { MODULES, SOLAR_ARRAY, FORK, bearingToDir } from './layout.js';
-import { makeSignTexture, createReadout, makeTagTexture, makeSolarCellTexture } from './textures.js';
+import { makeSignTexture, createReadout, makeTagTexture, makeSolarCellTexture, makeStatusTexture } from './textures.js';
 
 const M = (color, opts = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.75, metalness: 0.05, ...opts });
 
@@ -483,13 +483,33 @@ export function buildBase(heightAt) {
     labSel.tag.position.y = lab.labelY + 0.08 * Math.sin(t * 2 + 1);
   }
 
+  // Mission state shown in the world: { crew: {text, warn}, lab: {text, done} } (null hides a plate).
+  const statusPlates = {};
+  for (const [key, group, y] of [['crew', ls.group, 3.75], ['lab', lab.group, MODULES.lab.legHeight + MODULES.lab.height + 1.9]]) {
+    const tex = makeStatusTexture();
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+    sprite.scale.set(2.8, 0.7, 1);
+    sprite.position.set(group.position.x, group.position.y + y, group.position.z + (key === 'crew' ? 0.6 : 0.4));
+    sprite.visible = false;
+    sprite.renderOrder = 9;
+    root.add(sprite);
+    statusPlates[key] = { sprite, tex };
+  }
+  function setStatus(status = {}) {
+    for (const [key, plate] of Object.entries(statusPlates)) {
+      const s = status[key];
+      plate.sprite.visible = !!s;
+      if (s) plate.tex.userData.set(s.text, s.warn ? 'warn' : (s.done ? 'done' : 'normal'));
+    }
+  }
+
   // Language switch: redraw every sign/readout/tag texture with t(key).
   function setTexts(t) {
     for (const { tex, key } of textTargets) tex.userData.setText(t(key));
     readout.setLabels({ output: t('map.solarOutput'), sunlight: t('map.inSunlight'), shadow: t('map.inShadow') });
   }
 
-  return { root, pickables, setSelected, setSolar, setHovered, setTexts, update, mats };
+  return { root, pickables, setSelected, setSolar, setHovered, setTexts, setStatus, update, mats };
 }
 
 export { bearingToDir };

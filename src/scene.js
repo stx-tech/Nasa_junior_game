@@ -344,6 +344,8 @@ export function mountScene(container, mission, shift, selected, onSelect, pose, 
     setShift,
     setInputEnabled,
     get inputEnabled() { return inputEnabled; },
+    // Mission state in the world (Moon only for now; placeholders ignore it).
+    setStatus(status) { moon?.setStatus(status); },
     // Language switch: canvas name, Moon map signs, tablet label/idle screen.
     setTexts(tr) {
       canvas.setAttribute('aria-label', tr('scene.label'));
