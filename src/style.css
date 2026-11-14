@@ -1,0 +1,37 @@
+:root {
+  font-family: "Segoe UI", system-ui, Arial, sans-serif;
+  color: #eef1f5;
+  background: #0b0f16;
+  font-size: 18px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+#app { max-width: 1280px; margin: 0 auto; padding: 12px; }
+.topbar { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 24px; }
+.topbar h1 { font-size: 1.3rem; margin: 0; }
+.stats { display: flex; gap: 18px; font-weight: 600; }
+.stats .warn { color: #ff8a73; }
+.view { position: relative; width: 100%; aspect-ratio: 16 / 9; max-height: 72vh; background: #000; border-radius: 10px; overflow: hidden; }
+.scene-canvas { display: block; outline: none; cursor: grab; touch-action: none; }
+.scene-canvas:focus-visible { outline: 3px solid #5ee1ff; outline-offset: -3px; }
+.help { margin: 8px 0; color: #b7c0cc; font-size: 0.9rem; }
+kbd { background: #1c2533; border: 1px solid #39465a; border-radius: 4px; padding: 0 5px; margin: 0 1px; font-size: 0.85rem; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+button { font: inherit; min-height: 48px; padding: 8px 16px; border-radius: 10px; border: 2px solid #39465a; background: #182131; color: #eef1f5; cursor: pointer; }
+button:focus-visible { outline: 3px solid #5ee1ff; outline-offset: 2px; }
+button.module small { display: block; font-size: 0.75rem; color: #b7c0cc; }
+button.module[aria-pressed="true"] { border-color: #5ee1ff; background: #11344a; }
+button.module[aria-pressed="true"] small { color: #5ee1ff; font-weight: 700; }
+button.run { margin-left: auto; background: #1f5f3a; border-color: #58c27d; font-weight: 700; }
+button:disabled { opacity: 0.55; cursor: not-allowed; }
+.ico { font-size: 1.1rem; margin-right: 4px; }
+.budget { color: #c9d1dc; }
+.report { margin-top: 10px; padding: 10px 14px; border-radius: 10px; background: #131a25; min-height: 48px; }
+.report p { margin: 4px 0; }
+.report.warn { border-left: 5px solid #ff8a73; }
+.report.good { border-left: 5px solid #58c27d; }
+@media (max-width: 700px) {
+  :root { font-size: 16px; }
+  .view { aspect-ratio: 4 / 3; }
+  button.run { margin-left: 0; width: 100%; }
+}

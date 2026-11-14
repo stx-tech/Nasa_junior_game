@@ -1,0 +1,18 @@
+{
+  "name": "nasa-junior-game",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build --base=./",
+    "preview": "vite preview",
+    "check:moon": "python3 scripts/check_moon.py",
+    "check:sun": "node scripts/sun_check.mjs",
+    "map:svg": "node scripts/topdown_svg.mjs"
+  },
+  "dependencies": {
+    "three": "^0.187.0",
+    "vite": "^5.4.21"
+  }
+}
